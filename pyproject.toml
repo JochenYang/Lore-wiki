@@ -1,0 +1,175 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lorewiki"
+version = "0.1.0"
+description = "Local-first knowledge base for LLM-assisted coding, with hybrid retrieval (BM25 + hierarchy + optional vector) over SQLite FTS5."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "LoreWiki Team" }]
+keywords = ["knowledge-base", "rag", "sqlite", "fts5", "mcp", "llm", "cli"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Text Processing :: Indexing",
+]
+
+# Core runtime dependencies. Kept minimal for phase 0; extras add optional features.
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.7",
+    "loguru>=0.7",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "tomli>=2.0; python_version < '3.11'",
+    "tomli-w>=1.0",
+    "python-frontmatter>=1.1",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+ui = ["streamlit>=1.32"]
+rest = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+mcp = ["mcp>=1.0"]
+vector = ["sqlite-vec>=0.1.6", "sentence-transformers>=2.7"]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+]
+all = [
+    "lorewiki[ui,rest,mcp,vector]",
+]
+
+[project.scripts]
+lorewiki = "lorewiki.cli:app"
+
+[project.urls]
+Documentation = "https://github.com/JochenYang/Lore-wiki"
+Source = "https://github.com/JochenYang/Lore-wiki"
+
+[tool.hatch.build.targets.wheel]
+# The wheel is what end users download. Keep it to the bare minimum:
+# only the `lorewiki/` package and the schema SQL it imports at
+# runtime. Tests, fixtures, docs, scripts and benchmarks all live
+# in the source tree but are not needed at install time.
+packages = ["lorewiki"]
+exclude = [
+    "tests/",
+    "example_wiki/",
+    "docs/",
+    "scripts/",
+    "skills/",
+    "assets/",
+    "**/.lorewiki/",
+    "**/__pycache__/",
+    "**/*.pyc",
+    "**/*.pyo",
+    "**/.pytest_cache",
+    "**/.ruff_cache",
+    ".coverage",
+    ".coverage.*",
+    "htmlcov/",
+    "*.egg-info/",
+    "build/",
+    "dist/",
+    "*.toml.bak",
+    # editor / OS
+    ".vscode/",
+    ".idea/",
+    ".DS_Store",
+    "Thumbs.db",
+    "*.swp",
+]
+
+[tool.hatch.build.targets.sdist]
+# The sdist (`pip download lorewiki --no-binary :all:`) is what
+# distributions that can't fetch wheels fall back to. Keep it to
+# the same minimal set so the user experience is identical to the
+# wheel install.
+#
+# hatchling's sdist default is to include **every** non-VCS-ignored
+# file (LICENSE, CHANGELOG.md, CONTRIBUTING.md, README.zh-CN.md,
+# .gitignore, ...). That's fine for most projects but here we want
+# the *user* install experience to be identical between wheel and
+# sdist, so we **explicitly include** the same minimal set.
+include = [
+    "lorewiki/",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+]
+# Belt-and-braces: if anything tries to sneak in (e.g. a future
+# CONTRIBUTING.md / CHANGELOG.md / docs/ change), the explicit
+# exclude list below will still drop it.
+exclude = [
+    "tests/",
+    "example_wiki/",
+    "docs/",
+    "scripts/",
+    "skills/",
+    "assets/",
+    ".venv/",
+    "dist/",
+    "build/",
+    ".pytest_cache/",
+    ".ruff_cache/",
+    ".coverage",
+    ".coverage.*",
+    "htmlcov/",
+    ".vscode/",
+    ".idea/",
+    ".git/",
+    "/.gitignore",
+    "/.gitattributes",
+    "/CHANGELOG.md",
+    "/CONTRIBUTING.md",
+    "/README.zh-CN.md",
+    "**/__pycache__/",
+    "**/*.pyc",
+    "**/*.pyo",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["lorewiki"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
+skip_covered = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "PL", "RUF"]
+# PLE1205 detects '%s' style logging format strings; we use loguru which
+# accepts '{}' placeholders, so the rule fires on every loguru call.
+ignore = ["PLR0913", "PLR2004", "PLE1205"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004", "S101"]

@@ -1,0 +1,45 @@
+{
+  "name": "lorewiki",
+  "version": "0.1.0",
+  "description": "Local-first Markdown knowledge base with hybrid retrieval (BM25 + hierarchy + optional LLM) over SQLite FTS5. This is a thin Node.js shim that installs the Python wheel and proxies to it.",
+  "keywords": [
+    "knowledge-base",
+    "rag",
+    "sqlite",
+    "fts5",
+    "mcp",
+    "llm",
+    "cli",
+    "wiki"
+  ],
+  "homepage": "https://github.com/JochenYang/Lore-wiki",
+  "bugs": {
+    "url": "https://github.com/JochenYang/Lore-wiki/issues"
+  },
+  "license": "MIT",
+  "author": "LoreWiki Team",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "lorewiki": "bin/lorewiki.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js",
+    "preuninstall": "node scripts/preuninstall.js"
+  },
+  "files": [
+    "bin/",
+    "scripts/postinstall.js",
+    "scripts/preuninstall.js",
+    "LICENSE",
+    "README.md",
+    "README.npm.md"
+  ],
+  "dependencies": {},
+  "devDependencies": {},
+  "engines": {
+    "node": ">=18"
+  }
+}
