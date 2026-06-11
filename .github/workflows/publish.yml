@@ -70,13 +70,15 @@ jobs:
           # root bundles exactly those files (the .npmignore
           # excludes everything else), so we can run it without
           # changing directory.
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
+          # Use [[ ]] (bash keyword) rather than [ ] so the YAML
+          # parser does not mistake the brackets for a flow seq.
+          if [[ -z "${NODE_AUTH_TOKEN}" ]]; then
             echo "::warning::NPM_TOKEN secret is not set; skipping npm publish."
             exit 0
           fi
-          echo "//registry.npmjs.org/:_authToken=$NODE_AUTH_TOKEN" > "$HOME/.npmrc"
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
           npm pack --pack-destination /tmp/npm-pack/ 2>&1 || true
-          if [ -f /tmp/npm-pack/lorewiki-*.tgz ]; then
+          if [[ -f /tmp/npm-pack/lorewiki-*.tgz ]]; then
             npm publish /tmp/npm-pack/lorewiki-*.tgz --access public \
               || echo "::warning::npm publish failed (non-fatal; PyPI succeeded)"
           else
