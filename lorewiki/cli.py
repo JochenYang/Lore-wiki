@@ -156,6 +156,12 @@ def _launch_streamlit(port: int, headless: bool) -> None:
         str(port),
         "--server.address",
         "127.0.0.1",
+        # Skip Streamlit's "Welcome to Streamlit / enter your email"
+        # onboarding screen on first run — lorewiki's own panel
+        # already tells the user how to stop the server, and we don't
+        # need to phone home for anonymous usage stats.
+        "--browser.gatherUsageStats",
+        "false",
     ]
     if headless:
         args += ["--server.headless", "true"]

@@ -1,6 +1,6 @@
 ﻿---
 name: lorewiki
-description: "Local-first knowledge base over Markdown wikis with SQLite FTS5 retrieval, RRF fusion and optional LLM answer generation. Use when the user wants to search, ask, browse, write to or index a team/project documentation wiki, when they say 'wiki', 'knowledge base', '知识库' (knowledge base), '查文档' (look up docs), '查 API' (look up API), '查 wiki', 'lorewiki', or when they need to persist a learning / decision / postmortem into a queryable store."
+description: "Local-first Markdown knowledge base with hybrid retrieval (SQLite FTS5 trigram tokenizer + heading hierarchy + RRF fusion) and optional LLM answer generation (Ollama or OpenAI-compatible). Use when the user wants to search, ask, browse, or write to a documentation wiki; persist a learning, decision, or postmortem into a queryable store; or when they say 'wiki', 'knowledge base', '知识库', '查文档', '查 API', '查 wiki', 'lorewiki', 'internal docs', 'runbook', 'postmortem', 'team docs'. Two wiki-addressing modes: (1) global topic under ~/lorewiki/topics/<name>/ (recommended, set once via `lorewiki topic use <name>`), (2) per-project via `lorewiki --path <wiki_root>` for ad-hoc queries — always prefer the active topic and only fall back to --path when the user explicitly names a project directory. CLI is one shell call per command with --raw JSON output; no daemon, no MCP client config, no server to keep alive."
 ---
 
 # lorewiki
