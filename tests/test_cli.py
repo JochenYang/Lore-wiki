@@ -62,5 +62,5 @@ def test_print_phase_status_lists_phases(capsys: pytest.CaptureFixture[str]) -> 
     print_phase_status()
     captured = capsys.readouterr()
     combined = captured.out + captured.err
-    for marker in ("phase status", "bootstrap", "BM25", "RRF", "Streamlit", "MCP"):
+    for marker in ("phase status", "bootstrap", "BM25", "RRF", "REST", "MCP"):
         assert marker.lower() in combined.lower(), f"missing marker {marker!r}"

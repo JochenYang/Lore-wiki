@@ -16,7 +16,7 @@
 # Install (isolated, per-tool venv):
 uv tool install lorewiki
 
-# Install with all optional features (Streamlit / FastAPI / MCP / vector):
+# Install with all optional features (FastAPI / MCP / vector):
 uv tool install 'lorewiki[all]'
 
 # Upgrade:
@@ -78,10 +78,15 @@ Optional features are behind extras:
 
 | Extra            | What it adds                                                  | When you need it                                                                                              |
 |------------------|--------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
-| `lorewiki[ui]`     | Streamlit 4-page web UI                                        | You want a browser UI (`lorewiki ui`)                                                                          |
-| `lorewiki[rest]`   | FastAPI + Uvicorn                                             | You want a REST API (`lorewiki rest` or browser-side JSON consumption)                                       |
+| `lorewiki[rest]`   | FastAPI + Uvicorn                                             | You want a REST API (`lorewiki rest`, OpenAPI at `/docs`)                                                    |
 | `lorewiki[mcp]`    | MCP stdio server                                              | You want Claude Desktop / Cursor / opencode to talk to lorewiki via the Model Context Protocol              |
 | `lorewiki[vector]` | sqlite-vec + sentence-transformers (note: vector retrieval not yet implemented — opt-in for future) | When phase-7 vector retrieval lands                                                                          |
+
+> **Note**: LoreWiki no longer ships a built-in web UI in 0.1.0.
+> The `[ui]` extra and the `lorewiki ui` subcommand are gone.
+> Consume the data via the REST API, the MCP server, or by opening
+> the active topic's vault directory in any Markdown editor
+> (Obsidian, VS Code, etc.).
 | `lorewiki[dev]`    | pytest / pytest-cov / pytest-asyncio / ruff                   | You want to run the test suite locally                                                                        |
 | `lorewiki[all]`    | `lorewiki[ui,rest,mcp,vector]`                                | Kitchen-sink install                                                                                          |
 
@@ -97,8 +102,7 @@ uv tool install 'lorewiki[all]'
 ```
 
 After `uv tool install 'lorewiki[rest]'`, the `lorewiki rest`
-subcommand becomes available; `lorewiki ui` will still say
-"streamlit not installed" until you add `[ui]`.
+subcommand becomes available.
 
 ## Where does the data live?
 
@@ -151,7 +155,7 @@ lorewiki topic list
 | Symptom                                          | Cause                                                                                          | Fix                                                                                                                       |
 |--------------------------------------------------|------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
 | `command not found: lorewiki`                   | `uv tool` install finished but `~/.local/bin` (or `%USERPROFILE%\.local\bin`) isn't on PATH | `uv tool install` prints a hint at the end; re-source the shell or add the directory to PATH                                |
-| `ModuleNotFoundError: streamlit` running `lorewiki ui` | You installed `lorewiki` without `[ui]` extra                                                | `uv tool install --force 'lorewiki[ui]'` (or `[all]`)                                                                       |
+| `ModuleNotFoundError: streamlit` running `lorewiki --web` | You installed `lorewiki` after a release that still had a Streamlit UI | LoreWiki dropped the built-in web UI in 0.1.0. The `--web` flag is now a no-op that prints a migration hint. Use the REST API, the MCP server, or your Markdown editor instead. |
 | `Wheel ... located at ... does not appear to be valid` (`twine check`) | Malformed `pyproject.toml` after edits                                                       | Re-run `python -m build` from a clean tree; if it persists, paste the full error into a GitHub issue                   |
 | `403 Forbidden` uploading to PyPI                  | Wrong API token (or expired)                                                                  | Generate a per-project token at <https://pypi.org/manage/account/token/>; the username **must** be `__token__`          |
 

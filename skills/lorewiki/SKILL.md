@@ -419,7 +419,7 @@ lorewiki rest --port 8000 --path "<WIKI>"
 
 | Pitfall                                                              | Avoidance                                                                                                                             |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Calling `lorewiki rest` / `lorewiki ui` in the agent's bash and waiting on it — these are blocking servers and will hang the turn. | Tell the user to run them in their own terminal. For "verify REST works", call `Invoke-RestMethod http://127.0.0.1:<port>/health` instead. |
+| Calling `lorewiki rest` in the agent's bash and waiting on it — these are blocking servers and will hang the turn. | Tell the user to run them in their own terminal. For "verify REST works", call `Invoke-RestMethod http://127.0.0.1:<port>/health` instead. |
 | Searching with a 1-2 character CJK query and getting "0 hits".       | Combine with at least one more char or use `--mode bm25` which falls back to LIKE for short queries.                                  |
 | Forgetting `--path` and assuming `cwd` has a wiki config.            | Always pass `--path`. If the user is ambiguous, follow the priority chain in [Path Handling Convention](#path-handling-convention).   |
 | Editing a `.md` and not re-indexing.                                 | `lorewiki index --path "<WIKI>"` is incremental — unchanged files skip; just run it.                                                  |
@@ -439,7 +439,6 @@ lorewiki search   "<QUERY>" --path "<WIKI>" --mode {mix|bm25|hierarchy} --top-k 
 lorewiki ask      "<QUERY>" --path "<WIKI>" --top-k N --raw
 lorewiki config   {list|get|set} ... --path "<WIKI>"
 lorewiki rest     --port 8000  --path "<WIKI>"    # long-running, user runs it
-lorewiki ui       --port 8501  --path "<WIKI>"    # long-running, user runs it
 lorewiki mcp      --path "<WIKI>"                  # long-running, MCP stdio
 ```
 

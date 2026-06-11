@@ -14,7 +14,8 @@
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&logoColor=white&style=for-the-badge)](https://www.python.org/)
 [![SQLite](https://img.shields.io/badge/SQLite-+FTS5-003B57?logo=sqlite&logoColor=white&style=for-the-badge)](https://www.sqlite.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-REST-009688?logo=fastapi&logoColor=white&style=for-the-badge)](https://fastapi.tiangolo.com/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-Web_UI-FF4B4B?logo=streamlit&logoColor=white&style=for-the-badge)](https://streamlit.io/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-REST-009688?logo=fastapi&logoColor=white&style=for-the-badge)](https://fastapi.tiangolo.com/)
+[![MCP](https://img.shields.io/badge/MCP-1.x-1E90FF?logo=modelcontextprotocol&logoColor=white&style=for-the-badge)](https://modelcontextprotocol.io/)
 [![MCP](https://img.shields.io/badge/MCP-1.x-1E90FF?logo=modelcontextprotocol&logoColor=white&style=for-the-badge)](https://modelcontextprotocol.io/)
 
 ### Tools
@@ -27,7 +28,7 @@
 ---
 
 LoreWiki indexes your team's Markdown wiki and exposes it through a CLI,
-optional Web UI, REST API, and an MCP server consumable by Claude Desktop /
+optional REST API, MCP server consumable by Claude Desktop /
 Cursor / other LLM clients.
 
 **Key numbers from the example_wiki benchmark** (10 hand-authored queries):
@@ -46,8 +47,9 @@ Cursor / other LLM clients.
   short CJK queries (e.g. `"幂等"` (idempotent), `"认证"` (auth)).
 - **Optional LLM integration** (Ollama or OpenAI-compatible). Gracefully
   degrades to "return the top-k chunks" when the LLM is offline.
-- **Five entry points** sharing one core: CLI, REST (FastAPI), Web UI
-  (Streamlit), MCP stdio (for Claude Desktop / Cursor / etc.),
+- **Four entry points** sharing one core: CLI, REST (FastAPI),
+  MCP stdio (for Claude Desktop / Cursor / etc.), and the active
+  topic's vault directory opened in any Markdown editor.
   agent skill (for opencode / Codex / Aider / any shell-using agent).
 - **Second-brain / topics**: one isolated vault per knowledge domain
   under `~/lorewiki/topics/`, shared across every project.
@@ -64,9 +66,8 @@ uv tool install --editable . --with fastapi --with "uvicorn[standard]" --with mc
 
 # Or plain pip
 pip install -e .                 # core CLI + REST + MCP
-pip install -e ".[ui]"           # add Streamlit Web UI
 pip install -e ".[dev]"          # add pytest / ruff / coverage
-pip install -e ".[all]"          # everything
+pip install -e ".[all]"          # everything except the dropped [ui] extra
 ```
 
 Python **3.10+** required. After install, `lorewiki --version`
@@ -250,17 +251,25 @@ curl -X POST http://127.0.0.1:8000/search \
   -d '{"query": "幂等设计", "top_k": 3, "mode": "mix"}'
 ```
 
-## Web UI (Streamlit)
+## REST API (and the Markdown vault as your "UI")
 
 ```bash
-pip install lorewiki[ui]
-lorewiki ui --port 8501 --path ./my-wiki
-# Opens http://127.0.0.1:8501 in your browser.
+lorewiki rest --port 8000 --topic wechat-miniprogram-api
+# Swagger UI:    http://127.0.0.1:8000/docs
+# OpenAPI JSON:  http://127.0.0.1:8000/openapi.json
 ```
 
-Four pages in the sidebar: **Search** (with optional "ask" mode), **Browse**
-(hierarchy tree + Markdown render), **Config** (read-only view of the merged
-config), **Status** (index metrics).
+LoreWiki no longer ships a built-in web UI in 0.1.0. The recommended
+ways to consume the data are:
+
+- **REST API** (above) — full OpenAPI surface, scrape-friendly.
+- **MCP stdio server** — wire lorewiki into Claude Desktop / Cursor /
+  opencode / Codex as a tool the model can call.
+- **The active topic's vault directory** — every topic is a plain
+  folder of `.md` files under `~/.lorewiki/topics/<name>/` (or
+  `<wiki>/.lorewiki/...` in per-wiki mode). Open it in Obsidian,
+  VS Code, Cursor, or any Markdown editor for the full rendered
+  view, no extra tooling required.
 
 ## MCP server (Claude Desktop / Cursor)
 
@@ -311,7 +320,7 @@ Restart opencode and the agent will auto-trigger the skill on cues like
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│           CLI · REST · Streamlit UI · MCP stdio             │
+│           CLI · REST · MCP stdio · vault-as-folder       │
 ├─────────────────────────────────────────────────────────────┤
 │  Indexer  │  Retriever (BM25 + Hierarchy + RRF)  │  LLM    │
 ├─────────────────────────────────────────────────────────────┤
@@ -348,7 +357,9 @@ it is and how to use it.
 - **Streaming `ask` endpoint** (SSE).
 - **Incremental file-watcher** (`lorewiki update --watch`).
 - **PDF / Word ingestion** beyond Markdown.
-- **Read-only Config page** → editable form in the Streamlit UI.
+- **Editable Config form** in a future web UI (we removed the
+  Streamlit UI in 0.1.0; today the config is edited via
+  `lorewiki config set` or by editing `~/.lorewiki/config.toml`).
 - **Atomic write of `~/lorewiki/current`** (currently best-effort).
 
 ## Contributing

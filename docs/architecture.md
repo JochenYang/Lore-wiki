@@ -184,8 +184,8 @@ lorewiki/
 │   └── generator.py         # AnswerGenerator: prompt assembly + invoke + parse
 ├── server/
 │   ├── rest_api.py          # FastAPI: 6 endpoints + OpenAPI + 503 fallback
-│   ├── mcp_server.py        # MCP stdio: search_lorewiki + get_module_summary
-│   └── ui.py                # Streamlit: 4 pages (lazy import)
+│   └── mcp_server.py        # MCP stdio: search_lorewiki + get_module_summary
+│                            # (Streamlit web UI removed in 0.1.0)
 └── utils/
     └── logger.py            # loguru wrapper
 ```
@@ -300,7 +300,6 @@ User query: "限流方案"            # (also: "rate limit" in English works equ
 | **CLI (human)**                       | `lorewiki search "限流"`                                  | Rich table (default) / JSON (`--raw`)   |
 | **CLI (agent)**                       | `lorewiki --topic react search "限流" --raw`              | Pure JSON array (clean UTF-8)           |
 | **REST API**                           | `GET /search?q=限流`                                     | JSON (OpenAPI at `/docs`)               |
-| **Streamlit UI**                       | http://127.0.0.1:8501 "Search" page                     | Browser-rendered                        |
 | **MCP stdio**                          | `search_lorewiki(query="限流")`                          | MCP JSON-RPC frame                      |
 | **agent skill** (opencode et al.)     | agent reads SKILL.md, calls `lorewiki search --raw`      | agent parses the JSON itself            |
 
@@ -373,7 +372,7 @@ tar xzf lorewiki-backup.tar.gz -C ~
 | 1      | index + BM25 search                | ✅ done  |
 | 2      | hierarchy + RRF fusion             | ✅ done  |
 | 3      | LLM integration                    | ✅ done  |
-| 4      | Streamlit UI + REST                | ✅ done  |
+| 4      | REST + packaging                  | ✅ done  |
 | 5      | MCP server + packaging             | ✅ done  |
 | 6      | **Topic / second-brain model**     | ✅ done  |
 | 7+     | future iterations                  | ⏳ TBD  |

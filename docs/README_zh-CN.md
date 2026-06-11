@@ -13,19 +13,18 @@
 [![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&logoColor=white&style=for-the-badge)](https://www.python.org/)
 [![SQLite](https://img.shields.io/badge/SQLite-+FTS5-003B57?logo=sqlite&logoColor=white&style=for-the-badge)](https://www.sqlite.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-REST-009688?logo=fastapi&logoColor=white&style=for-the-badge)](https://fastapi.tiangolo.com/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-Web_UI-FF4B4B?logo=streamlit&logoColor=white&style=for-the-badge)](https://streamlit.io/)
 [![MCP](https://img.shields.io/badge/MCP-1.x-1E90FF?logo=modelcontextprotocol&logoColor=white&style=for-the-badge)](https://modelcontextprotocol.io/)
 
 ### 工具
 
 [![uv](https://img.shields.io/badge/uv-包%20%2B%20工具-5C2D91?logo=astral&logoColor=white&style=for-the-badge)](https://docs.astral.sh/uv/)
 [![ruff](https://img.shields.io/badge/ruff-0%20错误-D7FF64?logo=ruff&logoColor=black&style=for-the-badge)](https://docs.astral.sh/ruff/)
-[![pytest](https://img.shields.io/badge/pytest-198%20通过-0A9EDC?logo=pytest&logoColor=white&style=for-the-badge)](tests/)
+[![pytest](https://img.shields.io/badge/pytest-199%20通过-0A9EDC?logo=pytest&logoColor=white&style=for-the-badge)](tests/)
 [![License](https://img.shields.io/badge/License-MIT-22B14C?style=for-the-badge)](LICENSE)
 
 ---
 
-LoreWiki 把团队的 Markdown 文档索引到本地 SQLite，并通过 CLI、Web UI、REST API、MCP 服务对外暴露 — 让 Claude Desktop / Cursor 等 LLM 客户端能在编码时精准检索内部 API 文档、设计模式与踩坑记录。
+LoreWiki 把团队的 Markdown 文档索引到本地 SQLite，并通过 CLI、REST API、MCP 服务对外暴露 — 让 Claude Desktop / Cursor 等 LLM 客户端能在编码时精准检索内部 API 文档、设计模式与踩坑记录。
 
 **示例 Wiki 的基准数据**（10 个手工标注查询）：
 
@@ -40,7 +39,7 @@ LoreWiki 把团队的 Markdown 文档索引到本地 SQLite，并通过 CLI、We
 - **混合检索**：FTS5 BM25 + 层级树状导航，通过 Reciprocal Rank Fusion (RRF) 融合，无需 score 归一化。
 - **中英文友好**：trigram tokenizer + bigram/LIKE 兜底，短中文词（如「幂等」「认证」「登录」）也能稳定召回。
 - **LLM 可选接入**（Ollama 或 OpenAI 兼容后端）。LLM 离线时优雅降级为「返回 top-K 片段 + 明确提示」，工作流不会被打断。
-- **统一内核，四种入口**：CLI、REST（FastAPI）、Web UI（Streamlit）、MCP stdio（用于 Claude Desktop / Cursor 等）。
+- **统一内核，三种入口**：CLI、REST（FastAPI）、MCP stdio（用于 Claude Desktop / Cursor 等）；消费知识库的第四种方式是直接在任意 Markdown 编辑器（Obsidian / VS Code / Cursor）中打开当前主题的 vault 目录。
 - **零外部服务**：检索仅依赖 SQLite。LLM 完全可选。
 - **不需要向量模型**：BM25 + hierarchy 已能达成 Recall@5 = 100%；向量检索作为阶段 6 可选增强。
 
@@ -50,13 +49,10 @@ LoreWiki 把团队的 Markdown 文档索引到本地 SQLite，并通过 CLI、We
 # 核心：CLI + REST + MCP
 pip install -e .
 
-# 额外加 Streamlit Web UI（约 80MB 依赖：pandas/numpy/pyarrow 等）
-pip install -e ".[ui]"
-
 # 开发依赖（pytest / ruff / coverage）
 pip install -e ".[dev]"
 
-# 全套
+# 全套（已不再包含 [ui] extra；0.1.0 砍掉了 Streamlit Web UI）
 pip install -e ".[all]"
 ```
 
@@ -228,19 +224,19 @@ curl -X POST http://127.0.0.1:8000/search `
   -d '{"query": "幂等设计", "top_k": 3, "mode": "mix"}'
 ```
 
-## Web UI（Streamlit）
+## REST API 与 vault 目录（替代原 Web UI）
 
-```bash
-pip install lorewiki[ui]                  # 单独装 ui 依赖
-lorewiki ui --port 8501 --path ./my-wiki
-# 浏览器自动打开 http://127.0.0.1:8501
+```powershell
+lorewiki -t wechat-miniprogram-api rest --port 8000
+# Swagger UI:    http://127.0.0.1:8000/docs
+# OpenAPI JSON:  http://127.0.0.1:8000/openapi.json
 ```
 
-侧边栏四页：
-- **Search** — 输入框 + 模式选择 + 可选「ask 模式」（让 LLM 生成答案）
-- **Browse** — 层级树 + Markdown 渲染
-- **Config** — 当前生效配置（只读，编辑用 `lorewiki config set`）
-- **Status** — 索引指标 + 各模块 chunk 数
+LoreWiki 在 0.1.0 不再附带内置 Web UI。推荐使用以下三种方式消费知识库：
+
+- **REST API**（上）— 完整 OpenAPI 接口，可被任何 HTTP 客户端调用。
+- **MCP stdio 服务器** — 把 lorewiki 接入 Claude Desktop / Cursor / opencode / Codex 作为模型可调用的工具。
+- **当前主题的 vault 目录** — 每个主题就是 `~/.lorewiki/topics/<名字>/` 下的普通 `.md` 文件夹（在 per-wiki 模式下是 `<wiki>/.lorewiki/...`）。在 Obsidian / VS Code / Cursor 等任何 Markdown 编辑器中直接打开，就能看到完整渲染视图，不需要任何额外工具。
 
 ## MCP 服务（Claude Desktop / Cursor）
 
@@ -298,7 +294,7 @@ lorewiki mcp --path ./my-wiki
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│           CLI · REST · Streamlit UI · MCP stdio             │
+│           CLI · REST · MCP stdio · vault-as-folder        │
 ├─────────────────────────────────────────────────────────────┤
 │  Indexer  │  Retriever (BM25 + Hierarchy + RRF)  │  LLM    │
 ├─────────────────────────────────────────────────────────────┤

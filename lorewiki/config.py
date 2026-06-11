@@ -174,7 +174,7 @@ def load_config(
     # Resolve the active topic. The CLI normally injects the
     # ``topic`` key into ``overrides``; here we also honour the
     # ``~/lorewiki/current`` file so env-less calls (e.g. the
-    # Streamlit UI) still see the right topic.
+    # REST API) still see the right topic.
     from lorewiki.topic import USER_TOPICS_ROOT  # noqa: PLC0415
     effective_topic: str | None = None
     if overrides and "topic" in overrides and overrides["topic"]:

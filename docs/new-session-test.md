@@ -86,13 +86,14 @@ search "asdfgh-no-such-term" with the active topic
   scores).
 - The agent does **not** hallucinate content that isn't in the wiki.
 
-## 6. Optional: streaming UI smoke
+## 6. Optional: REST API smoke
 
 ```
-lorewiki ui
+lorewiki rest --port 8000
 ```
 
 …in a separate terminal (the agent doesn't run blocking servers).
+Note: lorewiki no longer ships a built-in web UI in 0.1.0.
 Open <http://127.0.0.1:8501>, click around the 4 pages
 (Search / Browse / Config / Status).
 

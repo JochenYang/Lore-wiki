@@ -904,7 +904,7 @@ def print_phase_status() -> None:
     table.add_row("1  index + BM25 search", "done")
     table.add_row("2  hierarchy + RRF fusion", "pending")
     table.add_row("3  LLM integration", "pending")
-    table.add_row("4  Streamlit UI + REST", "pending")
+    table.add_row("4  REST + packaging", "pending")
     table.add_row("5  MCP server + packaging", "pending")
     console.print(table)
 

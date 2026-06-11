@@ -7,8 +7,9 @@
 
 LoreWiki **is ready for internal / team-shared production use** as a CLI,
 REST API, MCP server, and **second-brain / vault** manager. The
-Streamlit UI code is complete and tested statically; it needs a one-time
-`pip install lorewiki[ui]` on the operator's machine to run live. See §3
+built-in web UI was removed in 0.1.0; consumers are expected to use
+the REST API, the MCP server, or open the active topic's vault
+directory in a Markdown editor (Obsidian, VS Code, etc.). See §3
 for the explicit list of verified vs. unverified items.
 
 ---
@@ -53,8 +54,6 @@ for the explicit list of verified vs. unverified items.
 - [x] `lorewiki ask QUERY` gracefully degrades when LLM unavailable
       (returns top-K chunks + clear notice)
 - [x] `lorewiki config list / get / set` round-trip works
-- [x] `lorewiki ui` launches Streamlit (friendly error when extra
-      missing)
 - [x] `lorewiki rest` launches FastAPI on default port 8000, `/docs`
       accessible (verified via `TestClient`)
 - [x] `lorewiki mcp` launches MCP stdio server (verified via SDK
@@ -148,7 +147,6 @@ for the explicit list of verified vs. unverified items.
 
 | Item                              | Why deferred                                                                              | What the operator should do                                                  |
 | --------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| **Streamlit UI live**             | streamlit pulls 80 MB+ deps (pandas / numpy / pyarrow / pydeck), download timed out twice | `pip install lorewiki[ui]` + `lorewiki ui` — visually confirm 4 pages render |
 | **Ollama / OpenAI live `ask`**    | LLM-side tested only via mock client                                                      | `ollama pull qwen2.5:7b` + `lorewiki config set llm.enabled true` + `lorewiki ask` |
 | **Claude Desktop end-to-end MCP** | SDK-layer round trip verified; stdio handshake with real Claude not exercised             | Add to Claude Desktop config (see README §MCP server)                        |
 | **PyPI publication**              | Mission did not require publishing                                                        | `python -m build && twine upload dist/*` when ready                          |
@@ -156,9 +154,10 @@ for the explicit list of verified vs. unverified items.
 
 ### Known limitations (filed for the next iteration)
 
-1. **Streamlit Config page is read-only** — dev plan §5.6 mentions
-   editing config from the UI; currently only `lorewiki config set`
-   mutates. Editing UI deferred to phase 7.
+1. **No editable Config form** — only `lorewiki config set` and
+   direct edits to `~/.lorewiki/config.toml` mutate the config.
+   The Streamlit web UI was removed in 0.1.0; a future web UI
+   would expose an editable form.
 2. **No vector retrieval** — opt-in; `sqlite-vec` +
    `sentence-transformers` are ready in extras
    (`pip install lorewiki[vector]`) but no `VectorRetriever`
@@ -226,9 +225,11 @@ curl -s -X POST http://127.0.0.1:8000/search \
   -H "Content-Type: application/json" \
   -d '{"query":"用户认证","top_k":3,"mode":"mix"}'
 
-# optional: launch the UI
-pip install lorewiki[ui]
-lorewiki ui --port 8501 --path example_wiki
+# optional: launch the REST API
+lorewiki rest --port 8000 --topic example
+
+# optional: open the active topic's vault in your Markdown editor
+# (e.g. ~/.lorewiki/topics/example/api/.../*.md)
 
 # optional: wire into Claude Desktop
 # (paste lorewiki config snippet from README §MCP server)
@@ -275,4 +276,4 @@ locally" section above as the acceptance script for any reviewer.
 **Version**: 0.1.0
 **Date**: 2026-06-10
 **Sign-off**: All four self-audit dimensions PASS (subject to
-operator-side Streamlit / LLM live tests as documented in §3).
+operator-side LLM live tests as documented in §3).
