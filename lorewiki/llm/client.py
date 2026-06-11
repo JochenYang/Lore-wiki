@@ -21,6 +21,7 @@ chunks instead of a synthesised answer" — see ``lorewiki/llm/generator.py``.
 from __future__ import annotations
 
 import json
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
@@ -247,11 +248,29 @@ def build_client(llm_cfg: LLMConfig) -> BaseLLMClient:
             timeout=llm_cfg.timeout_seconds,
         )
     if llm_cfg.backend == "openai":
-        if not llm_cfg.openai_api_key:
+        # Resolve api_key from a single config field that supports two shapes:
+        #   * plain text   → use it as the literal api key
+        #   * "env:NAME"   → look up os.environ["NAME"] at request time
+        # The env-var name is therefore fully user-controlled: no provider
+        # name is hard-coded in the client.
+        raw = llm_cfg.openai_api_key
+        if raw.startswith("env:"):
+            env_name = raw[4:].strip()
+            api_key = os.environ.get(env_name, "")
+            if not api_key:
+                log.warning(
+                    "openai backend: llm.openai_api_key references env '{}' "
+                    "which is unset or empty; disabling",
+                    env_name,
+                )
+                return DisabledLLMClient()
+        else:
+            api_key = raw
+        if not api_key:
             log.warning("openai backend selected but openai_api_key is empty; disabling")
             return DisabledLLMClient()
         return OpenAIClient(
-            api_key=llm_cfg.openai_api_key,
+            api_key=api_key,
             model=llm_cfg.openai_model,
             base_url=llm_cfg.openai_base_url or "https://api.openai.com/v1",
             timeout=llm_cfg.timeout_seconds,

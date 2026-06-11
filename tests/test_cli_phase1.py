@@ -66,14 +66,16 @@ def test_init_then_index_then_search(runner: CliRunner, tmp_path: Path) -> None:
     assert "Documents" in status_res.output
     assert "Chunks" in status_res.output
 
-    # search (text mode)
-    search_res = runner.invoke(app, ["search", "JWT", "--path", str(wiki), "--mode", "bm25"])
+    # search --human (Rich Table for eyes)
+    search_res = runner.invoke(
+        app, ["search", "JWT", "--path", str(wiki), "--mode", "bm25", "--human"]
+    )
     assert search_res.exit_code == 0, search_res.output
     assert "auth.md" in search_res.output
 
-    # search --raw (json mode)
+    # search default is JSON (for agents)
     raw_res = runner.invoke(
-        app, ["search", "JWT", "--path", str(wiki), "--mode", "bm25", "--raw", "--top-k", "2"]
+        app, ["search", "JWT", "--path", str(wiki), "--mode", "bm25", "--top-k", "2"]
     )
     assert raw_res.exit_code == 0, raw_res.output
     payload = json.loads(raw_res.output)
@@ -81,15 +83,22 @@ def test_init_then_index_then_search(runner: CliRunner, tmp_path: Path) -> None:
     assert all("chunk_id" in r for r in payload)
 
 
-def test_search_vector_mode_falls_back_with_notice(runner: CliRunner, tmp_path: Path) -> None:
-    """Vector retrieval is phase 6; CLI must degrade with a clear notice."""
+def test_search_vector_mode_silently_falls_back_to_mix(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """Vector retrieval is phase 6; CLI silently falls back to mix so
+    JSON consumers don't have to parse a warning banner."""
     wiki = tmp_path / "kb"
     wiki.mkdir()
     runner.invoke(app, ["init", "--path", str(wiki)])
     runner.invoke(app, ["index", "--path", str(wiki)])
-    result = runner.invoke(app, ["search", "wiki", "--path", str(wiki), "--mode", "vector"])
+    result = runner.invoke(
+        app, ["search", "wiki", "--path", str(wiki), "--mode", "vector"]
+    )
     assert result.exit_code == 0
-    assert "vector retrieval is scheduled" in result.output.lower()
+    # Default JSON output: parseable, no notice text leaks into it.
+    payload = json.loads(result.output)
+    assert isinstance(payload, list)
 
 
 def test_status_without_index_fails_clearly(runner: CliRunner, tmp_path: Path) -> None:

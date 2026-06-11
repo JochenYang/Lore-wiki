@@ -129,9 +129,9 @@ class HierarchyRetriever(BaseRetriever):
             placeholders = ",".join("?" * len(doc_paths))
             rows = conn.execute(
                 f"SELECT id AS chunk_id, doc_path, title, heading_path, module, "
-                f"       substr(content, 1, ?) AS snippet "
+                f"       content AS snippet "
                 f"FROM documents WHERE doc_path IN ({placeholders})",
-                (self.snippet_chars, *doc_paths),
+                (*doc_paths,),
             ).fetchall()
             for r in rows:
                 if r["chunk_id"] in seen_chunks:

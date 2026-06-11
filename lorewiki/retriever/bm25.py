@@ -106,12 +106,12 @@ class BM25Retriever(BaseRetriever):
         rows = conn.execute(
             """
             SELECT id AS chunk_id, doc_path, title, heading_path, module,
-                   substr(content, 1, ?) AS snippet, length(content) AS clen
+                   content AS snippet, length(content) AS clen
             FROM documents
             WHERE title LIKE ? OR content LIKE ? OR heading_path LIKE ?
             LIMIT ?
             """,
-            (self.snippet_chars, like, like, like, top_k * 2),
+            (like, like, like, top_k * 2),
         ).fetchall()
         hits: list[SearchHit] = []
         for r in rows:
@@ -142,7 +142,7 @@ class BM25Retriever(BaseRetriever):
                 """
                 SELECT
                     d.id AS chunk_id, d.doc_path, d.title, d.heading_path, d.module,
-                    snippet(docs_fts, 1, '<<', '>>', '...', 12) AS snippet,
+                    d.content AS snippet,
                     rank
                 FROM docs_fts
                 JOIN documents d ON d.rowid = docs_fts.rowid

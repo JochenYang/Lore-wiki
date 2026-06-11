@@ -49,15 +49,16 @@ def _run_lorewiki(args: list[str]) -> subprocess.CompletedProcess[bytes]:
     )
 
 
-def test_search_raw_preserves_cjk_in_subprocess(indexed_wiki: Path) -> None:
-    """``lorewiki search QUERY --raw`` must emit UTF-8 JSON with intact CJK.
+def test_search_json_preserves_cjk_in_subprocess(indexed_wiki: Path) -> None:
+    """``lorewiki search QUERY`` (default JSON) must emit UTF-8 JSON with intact CJK.
 
     This is the exact regression an agent hits when calling lorewiki through
-    the shell on Windows.
+    the shell on Windows. The default output mode is now JSON (no flag needed);
+    ``--raw`` was removed when the default flipped.
     """
     proc = _run_lorewiki(
         ["search", "用户认证", "--path", str(indexed_wiki), "--mode", "bm25",
-         "--top-k", "3", "--raw"]
+         "--top-k", "3"]
     )
     assert proc.returncode == 0, proc.stderr.decode("utf-8", errors="replace")
     out_text = proc.stdout.decode("utf-8", errors="strict")

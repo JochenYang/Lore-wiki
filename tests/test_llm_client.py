@@ -33,7 +33,12 @@ def test_build_client_ollama_when_enabled() -> None:
     assert c.model == "llama3.2"
 
 
-def test_build_client_openai_requires_key() -> None:
+def test_build_client_openai_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Wipe any env the shell may have leaked in, so the test isolates
+    # the cfg-only path.
+    for name in ("OPENAI_API_KEY", "MINIMAX_API_KEY", "LOREWIKI_TEST_KEY"):
+        monkeypatch.delenv(name, raising=False)
+
     cfg_no_key = LLMConfig(enabled=True, backend="openai", openai_api_key="")
     c = build_client(cfg_no_key)
     assert isinstance(c, DisabledLLMClient), "missing key must downgrade to disabled"
@@ -47,6 +52,57 @@ def test_build_client_openai_requires_key() -> None:
     c2 = build_client(cfg_with_key)
     assert isinstance(c2, OpenAIClient)
     assert c2.model == "gpt-4o-mini"
+    assert c2.api_key == "sk-test"
+
+
+def test_build_client_openai_env_reference(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`openai_api_key = "env:NAME"` reads the key from os.environ["NAME"]."""
+    cfg = LLMConfig(
+        enabled=True,
+        backend="openai",
+        openai_api_key="env:LOREWIKI_TEST_KEY",
+    )
+
+    # Env unset → disabled with a clear warning.
+    monkeypatch.delenv("LOREWIKI_TEST_KEY", raising=False)
+    c = build_client(cfg)
+    assert isinstance(c, DisabledLLMClient)
+
+    # Env set → OpenAIClient gets the env value.
+    monkeypatch.setenv("LOREWIKI_TEST_KEY", "sk-from-env")
+    c2 = build_client(cfg)
+    assert isinstance(c2, OpenAIClient)
+    assert c2.api_key == "sk-from-env"
+
+
+def test_build_client_openai_env_reference_uses_full_env_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The env var name is whatever the config says — no hard-coded names."""
+    cfg = LLMConfig(
+        enabled=True,
+        backend="openai",
+        openai_api_key="env:SOME_PROVIDER_SPECIFIC_KEY",
+    )
+    # A different env var name should NOT be picked up just because it
+    # happens to be a common name like OPENAI_API_KEY.
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-should-not-be-used")
+    monkeypatch.setenv("SOME_PROVIDER_SPECIFIC_KEY", "sk-correct")
+    c = build_client(cfg)
+    assert isinstance(c, OpenAIClient)
+    assert c.api_key == "sk-correct"
+
+
+def test_build_client_openai_plain_key_does_not_consult_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A plain (non-`env:`) key is used verbatim — env vars are ignored."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env")
+    monkeypatch.setenv("MINIMAX_API_KEY", "sk-from-minimax")
+    cfg = LLMConfig(enabled=True, backend="openai", openai_api_key="sk-plain")
+    c = build_client(cfg)
+    assert isinstance(c, OpenAIClient)
+    assert c.api_key == "sk-plain"
 
 
 def test_build_client_unknown_backend_disabled() -> None:

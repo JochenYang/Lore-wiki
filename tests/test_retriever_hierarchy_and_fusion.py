@@ -144,7 +144,7 @@ def test_mix_mode_combines_both_retrievers(indexed_wiki: LoreWikiConfig) -> None
     hits whose ``retriever`` is ``"mix"`` (set by RRF) — proving fusion ran."""
     from lorewiki.cli import _run_search  # noqa: PLC0415
 
-    hits = _run_search(indexed_wiki, "用户认证", mode="mix", top_k=3, raw=True)
+    hits = _run_search(indexed_wiki, "用户认证", mode="mix", top_k=3)
     assert hits
     assert all(h.retriever == "mix" for h in hits)
 

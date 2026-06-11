@@ -389,12 +389,22 @@ def search(
         str | None,
         typer.Option("--path", "-p", help="Project / wiki path."),
     ] = None,
-    raw: Annotated[
+    human: Annotated[
         bool,
-        typer.Option("--raw", help="Print results as JSON (machine-readable)."),
+        typer.Option(
+            "--human",
+            help="Render a Rich Table for human eyes. Default is JSON for agents.",
+        ),
     ] = False,
 ) -> None:
-    """Search the wiki and print top-k matching chunks."""
+    """Search the wiki and return top-k matching chunks.
+
+    The default output is structured JSON, designed for downstream agents
+    (opencode, claude code, custom scripts). Humans usually want
+    ``lorewiki ask`` instead — it wraps the same retrieval with an LLM
+    synthesis and Markdown rendering. Use ``--human`` here only when you
+    want to eyeball raw retrieval hits in the terminal.
+    """
     cfg = _resolve_config(path)
     db_path = cfg.db_path
     assert db_path is not None
@@ -408,9 +418,9 @@ def search(
     # CLI --mode wins; otherwise honor the project config's
     # retrieval_mode; otherwise fall back to bm25.
     effective_mode = (mode or cfg.retrieval_mode or "bm25").lower()
-    hits = _run_search(cfg, query, mode=effective_mode, top_k=top_k, raw=raw)
+    hits = _run_search(cfg, query, mode=effective_mode, top_k=top_k)
 
-    if raw:
+    if not human:
         payload = [
             {
                 "chunk_id": h.chunk_id,
@@ -716,7 +726,6 @@ def _run_search(
     *,
     mode: str,
     top_k: int,
-    raw: bool,
 ) -> list[Any]:
     """Dispatch ``mode`` to one or more retrievers and return ordered hits."""
     if mode not in SUPPORTED_MODES:
@@ -728,11 +737,8 @@ def _run_search(
         "hierarchy": HierarchyRetriever.from_config(cfg),
     }
     if mode == "vector":
-        if not raw:
-            console.print(
-                "[yellow]Vector retrieval is scheduled for phase 6; "
-                "falling back to mix.[/yellow]"
-            )
+        # Vector retrieval is scheduled for phase 6; silently fall back
+        # to mix so JSON consumers don't have to parse warning text.
         mode = "mix"
 
     if mode in {"bm25", "hierarchy"}:

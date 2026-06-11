@@ -25,6 +25,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
 H2_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 CODE_FENCE_RE = re.compile(r"^```")
 
@@ -125,6 +126,16 @@ def _slice_oversized(
     return pieces
 
 
+def _extract_h1(body: str) -> str | None:
+    """Return the first ``#`` heading of ``body`` (without the leading ``#``).
+
+    Frontmatter is already stripped by the parser, so the first ``#`` line
+    in ``body`` is the H1.
+    """
+    match = H1_RE.search(body)
+    return match.group(1).strip() if match else None
+
+
 def chunk_markdown(
     *,
     title: str,
@@ -133,7 +144,27 @@ def chunk_markdown(
     overlap_tokens: int = 100,
     min_chars: int = 40,
 ) -> list[Chunk]:
-    """Produce :class:`Chunk` records for one document body."""
+    """Produce :class:`Chunk` records for one document body.
+
+    Small documents (total token count ≤ ``max_tokens``) are kept as a
+    single chunk so downstream retrieval surfaces the **complete** doc —
+    callers asking "how do I call wx.foo?" get the API signature, params,
+    and example in one hit instead of three isolated fragments.
+    """
+    # Small-doc fast path: keep the whole document as one chunk. We still
+    # surface the H1 as the chunk's heading so it appears in the
+    # heading_path breadcrumb and shows up in CLI output.
+    if body.strip() and estimate_tokens(body) <= max_tokens:
+        h1 = _extract_h1(body)
+        return [
+            Chunk(
+                chunk_index=0,
+                heading=h1,
+                heading_path=" > ".join(p for p in (title, h1) if p),
+                body=body.strip(),
+            )
+        ]
+
     sections = split_by_h2(body)
     raw_chunks: list[tuple[str | None, str]] = []
     for heading, content in sections:

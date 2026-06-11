@@ -182,9 +182,7 @@ class AnswerGenerator:
         bullets = []
         for i, h in enumerate(hits[:3], start=1):
             label = h.heading_path or h.title
-            snippet = (h.snippet or "").strip().replace("\n", " ")
-            if len(snippet) > 240:
-                snippet = snippet[:240] + "..."
+            snippet = (h.snippet or "").strip()
             bullets.append(f"  {i}. [{h.doc_path}] {label}\n     {snippet}")
         body = "\n".join(bullets) if bullets else "  (no hits)"
         text = (

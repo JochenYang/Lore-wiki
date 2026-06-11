@@ -108,7 +108,7 @@ class LoreWikiConfig(BaseSettings):
     chunk_max_tokens: int = 800
     chunk_overlap_tokens: int = 100
     chunk_min_chars: int = 40
-    snippet_chars: int = 240
+    snippet_chars: int = 0
     llm: LLMConfig = Field(default_factory=LLMConfig)
     vector: VectorConfig = Field(default_factory=VectorConfig)
 

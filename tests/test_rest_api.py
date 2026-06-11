@@ -33,6 +33,15 @@ def client(tmp_path: Path) -> TestClient:
         "storms.\n",
         encoding="utf-8",
     )
+    # Third small file so the fixture produces enough chunks (3+) for
+    # tests that assert on chunk counts. The small-doc fast path in
+    # chunk_markdown keeps each of these as one chunk, so we need
+    # three separate files instead of one large one.
+    (wiki / "patterns" / "circuit.md").write_text(
+        "---\ntitle: Circuit\nmodule: patterns\n---\n\n# Circuit\n\n"
+        "## Trip\n\nTrip the circuit after N consecutive failures.\n",
+        encoding="utf-8",
+    )
     cfg = LoreWikiConfig(wiki_path=wiki, db_path=tmp_path / "index.db")
     build_index(cfg, rebuild=True)
     return TestClient(create_app(cfg))

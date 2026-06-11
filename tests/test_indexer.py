@@ -84,13 +84,15 @@ def test_split_by_h2_ignores_h2_inside_code_blocks() -> None:
 
 def test_chunk_markdown_basic() -> None:
     # Each section needs to exceed min_chars (40 by default) so the merger
-    # doesn't fuse them together.
+    # doesn't fuse them together. max_tokens=20 forces the oversize path
+    # — without that, the body is small enough to be kept as one whole
+    # chunk (the small-doc fast path tested in test_chunker.py).
     body = (
         "Intro section with enough content to remain on its own.\n\n"
         "## A\n\n" + ("Sentence about A. " * 5) + "\n\n"
         "## B\n\n" + ("Sentence about B. " * 5) + "\n"
     )
-    chunks = chunk_markdown(title="Doc", body=body)
+    chunks = chunk_markdown(title="Doc", body=body, max_tokens=20)
     assert len(chunks) >= 2
     crumbs = [c.heading_path for c in chunks]
     assert any("A" in c for c in crumbs)
@@ -131,6 +133,9 @@ def test_estimate_tokens_counts_cjk_and_ascii() -> None:
 
 
 def test_chunker_with_breadcrumb_includes_heading_path() -> None:
+    # Body is small so it takes the small-doc fast path; force the
+    # H2-split path with a tight max_tokens budget to exercise the
+    # heading-path breadcrumb behaviour.
     body = "## Heading X\n\ncontent."
-    chunks = chunk_markdown(title="T", body=body)
+    chunks = chunk_markdown(title="T", body=body, max_tokens=2)
     assert chunks[0].with_breadcrumb().startswith("[T > Heading X]")

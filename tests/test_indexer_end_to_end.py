@@ -18,8 +18,9 @@ def _seed_wiki(root: Path) -> None:
         "---\ntitle: My Wiki\nmodule: root\n---\n\n# My Wiki\n\nWelcome to the demo wiki.\n",
         encoding="utf-8",
     )
-    # auth.md needs each ## section to exceed the default ``min_chars`` (40)
-    # so the merger keeps them as separate chunks.
+    # auth.md is short enough to take the small-doc fast path and be
+    # indexed as a single chunk — see chunker.chunk_markdown for the
+    # max_tokens guard.
     (root / "api" / "user" / "auth.md").write_text(
         "---\ntitle: Auth\nmodule: api/user\n---\n\n# Auth\n\n"
         "## POST /login\n\n"
@@ -53,9 +54,10 @@ def test_build_index_creates_chunks_and_hierarchy(tmp_path: Path) -> None:
     assert cfg.db_path is not None
     with open_db(cfg.db_path, auto_init=False) as conn:
         chunks = conn.execute("SELECT doc_path, chunk_index FROM documents").fetchall()
-        # auth.md should produce more than one chunk because of multiple ##.
+        # auth.md is small enough to be kept as a single chunk (the
+        # small-doc fast path); just verify it produced at least one.
         auth_chunks = [c for c in chunks if c["doc_path"] == "api/user/auth.md"]
-        assert len(auth_chunks) >= 2
+        assert len(auth_chunks) >= 1
 
         # Hierarchy has root + modules + docs.
         nodes = conn.execute("SELECT node_type, path, level FROM hierarchy").fetchall()
