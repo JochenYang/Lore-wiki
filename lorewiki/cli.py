@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Annotated, Any
@@ -36,6 +37,7 @@ from lorewiki.retriever import (
     HierarchyRetriever,
     RRFFusion,
 )
+from lorewiki.server import ui as ui_module
 from lorewiki.topic import (
     CURRENT_FILE,
     USER_TOPICS_ROOT,
@@ -62,6 +64,33 @@ def _force_utf8_streams() -> None:
 
 
 _force_utf8_streams()
+
+# ---------------------------------------------------------------------------
+# ASCII banner
+# ---------------------------------------------------------------------------
+#
+# Hand-laid block-character logo, designed to render cleanly on Windows
+# Terminal / PowerShell 7+ / macOS Terminal. Six lines high, ~56 cols wide.
+_BANNER_LINES = (
+    " \u2588\u2588\u2566      \u2588\u2588\u2588\u2588\u2588\u2588\u2566 \u2588\u2588\u2588\u2588\u2588\u2588\u2566 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2566\u2588\u2588\u2566    \u2588\u2588\u2566\u2588\u2588\u2566\u2588\u2588\u2566  \u2588\u2588\u2566\u2588\u2588\u2566",  # noqa: E501
+    " \u2588\u2588\u2563     \u2588\u2588\u2566\u2588\u2588\u2588\u2566\u2588\u2588\u2566 \u2588\u2588\u2566\u2588\u2588\u2566\u2588\u2588\u2588\u2588\u2566\u2588\u2588\u2566    \u2588\u2588\u2563\u2588\u2588\u2563\u2588\u2588\u2563 \u2588\u2588\u2566\u2568\u2588\u2563\u2588\u2588\u2563",  # noqa: E501
+    " \u2588\u2588\u2563     \u2588\u2588\u2563   \u2588\u2588\u2563\u2588\u2588\u2588\u2588\u2588\u2588\u2566\u2588\u2588\u2588\u2588\u2588\u2566  \u2588\u2588\u2563 \u2566 \u2588\u2588\u2563\u2588\u2588\u2563\u2588\u2588\u2588\u2588\u2588\u2566\u2568 \u2588\u2588\u2563",  # noqa: E501
+    " \u2588\u2588\u2563     \u2588\u2588\u2563   \u2588\u2588\u2563\u2588\u2588\u2566 \u2588\u2588\u2566\u2588\u2588\u2566  \u2588\u2588\u2563\u2588\u2588\u2588\u2566\u2588\u2588\u2563\u2588\u2588\u2566\u2588\u2588\u2566\u2566 \u2588\u2588\u2563",  # noqa: E501
+    " \u2588\u2588\u2588\u2588\u2588\u2588\u2566\u256a\u2588\u2588\u2588\u2588\u2588\u2566\u2588\u2588\u2566  \u2588\u2588\u2563\u2588\u2588\u2588\u2588\u2588\u2588\u2566\u256a\u2588\u2588\u2588\u2566\u2588\u2588\u2588\u2566\u2588\u2588\u2563\u2588\u2588\u2566  \u2588\u2588\u2566\u2588\u2588\u2563",  # noqa: E501
+    " \u256a\u2588\u2588\u2588\u2588\u2588\u2588\u2566 \u256a\u2588\u2588\u2588\u2588\u2566 \u256a\u2588\u2588\u2566  \u256a\u2588\u2588\u2566\u256a\u2588\u2588\u2588\u2588\u2588\u2566 \u256a\u2588\u2588\u2566\u2568 \u256a\u2588\u2588\u2566 \u256a\u2588\u2588\u2566  \u256a\u2588\u2588\u2566\u256a\u2588\u2588\u2566",  # noqa: E501
+)
+_BANNER_HELP = "\n".join(_BANNER_LINES) + "\n"
+
+
+def _print_banner() -> None:
+    """Print the LoreWiki ASCII banner (cyan, bold) with a tagline."""
+    console.print(_BANNER_HELP.rstrip(), style="bold cyan", highlight=False)
+    console.print(
+        f"  [dim]local-first knowledge base \u00b7 v{__version__}[/dim]",
+        highlight=False,
+    )
+    console.print()
+
 
 app = typer.Typer(
     name="lorewiki",
@@ -94,8 +123,82 @@ log = get_logger(__name__)
 
 def _version_callback(value: bool) -> None:
     if value:
-        console.print(f"[bold cyan]LoreWiki[/bold cyan] [green]{__version__}[/green]")
+        _print_banner()
         raise typer.Exit()
+
+
+def _launch_streamlit(port: int, headless: bool) -> None:
+    """Spawn the Streamlit subprocess that serves the LoreWiki UI.
+
+    Streamlit must own the process (Tornado server, file watcher,
+    etc.) so we re-exec via ``streamlit run`` and block on it. The
+    caller decides whether to open a browser tab via ``headless``.
+    """
+    script_path = Path(ui_module.__file__).resolve()
+    args = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(script_path),
+        "--server.port",
+        str(port),
+        "--server.address",
+        "127.0.0.1",
+    ]
+    if headless:
+        args += ["--server.headless", "true"]
+    subprocess.call(args)
+
+
+def _web_callback(ctx: typer.Context, value: bool) -> None:
+    """Top-level ``--web`` shortcut: print the banner and launch the UI."""
+    if not value:
+        return
+    try:
+        import streamlit  # noqa: F401,PLC0415
+    except ImportError as exc:
+        console.print(
+            "[red]Web UI requires the 'ui' extra:[/red] "
+            "[cyan]uv tool install --force 'lorewiki\\[ui]'[/cyan]\n"
+            f"(missing: {exc.name})"
+        )
+        raise typer.Exit(code=1) from exc
+
+    port = ctx.params.get("port") or 8501
+    _print_banner()
+    console.print(
+        Panel(
+            f"[green]Opening LoreWiki Web UI at[/green] "
+            f"[bold]http://127.0.0.1:{port}[/bold]\n"
+            f"Press [cyan]Ctrl-C[/cyan] to stop the server.",
+            title="lorewiki --web",
+            border_style="green",
+        )
+    )
+    _launch_streamlit(port=port, headless=False)
+    raise typer.Exit(0)
+
+
+def _help_callback(ctx: typer.Context, value: bool) -> None:
+    """Top-level ``--help`` / ``-h`` shortcut that prepends the banner.
+
+    typer 0.9+ auto-generates ``--help`` *before* user code runs, so the
+    banner injection via :func:`_get_help_with_banner` never fires. We
+    therefore define an explicit ``--help`` option with ``is_eager=True``;
+    typer defers to the user-defined callback whenever an option with
+    that name exists. The standard typer-rendered help text is then
+    fetched via :meth:`typer.Context.get_help` so all subcommand /
+    option metadata still flows through the normal path.
+    """
+    if not value:
+        return
+    _print_banner()
+    # typer's Context exposes ``get_help`` which delegates to click's
+    # ``Context.get_help`` on the bound click.Command, so the output
+    # matches what the auto-generated help would have shown.
+    console.print(ctx.get_help(), highlight=False)
+    raise typer.Exit(0)
 
 
 @app.callback()
@@ -110,6 +213,40 @@ def main(
             is_eager=True,
         ),
     ] = False,
+    help_: Annotated[
+        bool,
+        typer.Option(
+            "--help",
+            "-h",
+            help="Show this message and exit.",
+            callback=_help_callback,
+            is_eager=True,
+        ),
+    ] = False,
+    web: Annotated[
+        bool,
+        typer.Option(
+            "--web",
+            help=(
+                "Open the LoreWiki Web UI in your browser. "
+                "Shorthand for `lorewiki ui` with the same "
+                "--port flag."
+            ),
+            callback=_web_callback,
+            is_eager=True,
+        ),
+    ] = False,
+    port: Annotated[
+        int,
+        typer.Option(
+            "--port",
+            "-P",
+            help=(
+                "Port for the Web UI when launched via `--web` "
+                "(default: 8501, the standard Streamlit port)."
+            ),
+        ),
+    ] = 8501,
     topic: Annotated[
         str | None,
         typer.Option(
@@ -500,6 +637,8 @@ def ui(
 
     Re-execs as ``streamlit run lorewiki/server/ui.py`` because Streamlit must
     own the process (it spawns its own Tornado server, file watcher, etc.).
+    The actual spawn is factored into :func:`_launch_streamlit` so the
+    ``--web`` top-level shortcut can share the same code path.
     """
     try:
         import streamlit  # noqa: F401,PLC0415
@@ -511,26 +650,6 @@ def ui(
         )
         raise typer.Exit(code=1) from exc
 
-    import subprocess  # noqa: PLC0415
-    import sys  # noqa: PLC0415
-
-    from lorewiki.server import ui as ui_module  # noqa: PLC0415
-
-    script_path = Path(ui_module.__file__).resolve()
-    args = [
-        sys.executable,
-        "-m",
-        "streamlit",
-        "run",
-        str(script_path),
-        "--server.port",
-        str(port),
-        "--server.address",
-        "127.0.0.1",
-    ]
-    if headless:
-        args += ["--server.headless", "true"]
-
     console.print(
         Panel(
             f"[green]Launching Streamlit UI on[/green] "
@@ -539,7 +658,8 @@ def ui(
             border_style="green",
         )
     )
-    raise typer.Exit(code=subprocess.call(args))
+    _launch_streamlit(port=port, headless=headless)
+    raise typer.Exit(0)
 
 
 @app.command()
@@ -1170,6 +1290,24 @@ def topic_delete(
             raise typer.Exit(code=1)
     mgr.delete(name)
     console.print(f"[red]deleted[/red] topic [bold]{info.name}[/bold]")
+
+
+# ---------------------------------------------------------------------------
+# Prepend the ASCII banner to every `--help` output (root + subcommands).
+#
+# typer wraps each :class:`Typer` in a click.Group at first dispatch, so
+# the `get_help` method only materialises on the instance. We don't need
+# to read it back from the instance — we just rebind it to a wrapper that
+# delegates to click.Group's reference implementation.
+# ---------------------------------------------------------------------------
+import click as _click  # noqa: E402
+
+
+def _get_help_with_banner(self: typer.Typer, ctx: typer.Context) -> str:  # type: ignore[override]
+    return _BANNER_HELP + _click.Group.get_help(self, ctx)
+
+
+app.get_help = _get_help_with_banner  # type: ignore[method-assign]
 
 
 __all__ = ["app", "print_phase_status"]
