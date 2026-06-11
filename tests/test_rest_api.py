@@ -5,6 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
+pytest.importorskip("fastapi")  # the [rest] extra; CI installs it via -e ".[dev,rest,mcp]"
+
 from fastapi.testclient import TestClient
 
 from lorewiki.config import LoreWikiConfig

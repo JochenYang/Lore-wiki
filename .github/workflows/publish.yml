@@ -37,7 +37,7 @@ jobs:
 
       - name: Run tests
         run: |
-          python -m pip install -e ".[dev]"
+          python -m pip install -e ".[dev,rest,mcp]"
           python -m pytest -q
 
       - name: Run linter

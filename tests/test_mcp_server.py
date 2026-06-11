@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("mcp")  # the [mcp] extra; CI installs it via -e ".[dev,rest,mcp]"
+
 from lorewiki.config import LoreWikiConfig
 from lorewiki.indexer import build_index
 from lorewiki.server.mcp_server import (
