@@ -27,6 +27,7 @@ classifiers = [
 # Core runtime dependencies. Kept minimal for phase 0; extras add optional features.
 dependencies = [
     "typer>=0.12",
+    "click>=8.0",
     "rich>=13.7",
     "loguru>=0.7",
     "pydantic>=2.6",
