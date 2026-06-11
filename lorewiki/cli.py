@@ -11,7 +11,6 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 from typing import Annotated, Any
@@ -37,7 +36,6 @@ from lorewiki.retriever import (
     HierarchyRetriever,
     RRFFusion,
 )
-from lorewiki.server import ui as ui_module
 from lorewiki.topic import (
     CURRENT_FILE,
     USER_TOPICS_ROOT,
@@ -138,78 +136,31 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
-def _launch_streamlit(port: int, headless: bool) -> None:
-    """Spawn the Streamlit subprocess that serves the LoreWiki UI.
-
-    Streamlit must own the process (Tornado server, file watcher,
-    etc.) so we re-exec via ``streamlit run`` and block on it. The
-    caller decides whether to open a browser tab via ``headless``.
-    """
-    script_path = Path(ui_module.__file__).resolve()
-
-    # Skip Streamlit's "Welcome to Streamlit / enter your email"
-    # onboarding screen on first run. The actual switch is
-    # ~/.streamlit/credentials.toml — if it does not exist,
-    # Streamlit pauses the first request to ask the user for an
-    # email (which the user can leave blank) before serving the
-    # real app, and that pause reads as ERR_CONNECTION_REFUSED in
-    # the browser tab. Pre-seeding the file with an empty email
-    # makes Streamlit skip the panel and serve lorewiki directly.
-    streamlit_config_dir = Path.home() / ".streamlit"
-    streamlit_config_dir.mkdir(parents=True, exist_ok=True)
-    credentials_path = streamlit_config_dir / "credentials.toml"
-    if not credentials_path.exists():
-        credentials_path.write_text(
-            '[general]\nemail = ""\n',
-            encoding="utf-8",
-        )
-
-    args = [
-        sys.executable,
-        "-m",
-        "streamlit",
-        "run",
-        str(script_path),
-        "--server.port",
-        str(port),
-        "--server.address",
-        "127.0.0.1",
-        # Don't phone home for anonymous usage stats either; the
-        # credentials file we just wrote already disabled that.
-        "--browser.gatherUsageStats",
-        "false",
-    ]
-    if headless:
-        args += ["--server.headless", "true"]
-    subprocess.call(args)
-
-
 def _web_callback(ctx: typer.Context, value: bool) -> None:
-    """Top-level ``--web`` shortcut: print the banner and launch the UI."""
+    """Top-level ``--web`` shortcut: print the banner and launch the UI.
+
+    LoreWiki no longer ships a built-in web UI; the recommended way
+    to consume the data is via the REST API, the MCP server, the CLI
+    itself, or by opening the active topic's vault directory in any
+    Markdown editor (Obsidian, VS Code, etc.). This callback stays
+    in the code only so that ``lorewiki --web`` prints a helpful
+    hint instead of "no such option" for users on older 0.1.0 docs.
+    """
     if not value:
         return
-    try:
-        import streamlit  # noqa: F401,PLC0415
-    except ImportError as exc:
-        console.print(
-            "[red]Web UI requires the 'ui' extra:[/red] "
-            "[cyan]uv tool install --force 'lorewiki\\[ui]'[/cyan]\n"
-            f"(missing: {exc.name})"
-        )
-        raise typer.Exit(code=1) from exc
-
-    port = ctx.params.get("port") or 8501
     _print_banner()
     console.print(
         Panel(
-            f"[green]Opening LoreWiki Web UI at[/green] "
-            f"[bold]http://127.0.0.1:{port}[/bold]\n"
-            f"Press [cyan]Ctrl-C[/cyan] to stop the server.",
+            "[yellow]lorewiki no longer ships a built-in web UI in 0.1.0.[/yellow]\n\n"
+            "Consume the knowledge base via:\n"
+            "  [cyan]lorewiki search / ask / browse[/cyan]  (CLI)\n"
+            "  [cyan]lorewiki rest --port 8000[/cyan]        (REST API, see /docs)\n"
+            "  [cyan]lorewiki mcp[/cyan]                    (MCP stdio server)\n"
+            "  [cyan]the vault dir in Obsidian / VS Code[/cyan]  (Markdown)",
             title="lorewiki --web",
-            border_style="green",
+            border_style="yellow",
         )
     )
-    _launch_streamlit(port=port, headless=False)
     raise typer.Exit(0)
 
 
@@ -261,25 +212,15 @@ def main(
         typer.Option(
             "--web",
             help=(
-                "Open the LoreWiki Web UI in your browser. "
-                "Shorthand for `lorewiki ui` with the same "
-                "--port flag."
+                "Deprecated: lorewiki no longer ships a built-in web UI. "
+                "Use `lorewiki rest`, `lorewiki mcp`, or open the vault "
+                "in a Markdown editor instead. This flag is kept as a "
+                "no-op alias that prints a migration hint."
             ),
             callback=_web_callback,
             is_eager=True,
         ),
     ] = False,
-    port: Annotated[
-        int,
-        typer.Option(
-            "--port",
-            "-P",
-            help=(
-                "Port for the Web UI when launched via `--web` "
-                "(default: 8501, the standard Streamlit port)."
-            ),
-        ),
-    ] = 8501,
     topic: Annotated[
         str | None,
         typer.Option(
@@ -656,43 +597,6 @@ def ask(
                 f"{h.score:.3f}",
             )
         console.print(ref_table)
-
-
-@app.command()
-def ui(
-    port: Annotated[int, typer.Option("--port", "-P", help="Port for the Streamlit UI.")] = 8501,
-    headless: Annotated[
-        bool,
-        typer.Option("--headless", help="Do not open a browser tab (CI-friendly)."),
-    ] = False,
-) -> None:
-    """Launch the Streamlit web UI.
-
-    Re-execs as ``streamlit run lorewiki/server/ui.py`` because Streamlit must
-    own the process (it spawns its own Tornado server, file watcher, etc.).
-    The actual spawn is factored into :func:`_launch_streamlit` so the
-    ``--web`` top-level shortcut can share the same code path.
-    """
-    try:
-        import streamlit  # noqa: F401,PLC0415
-    except ImportError as exc:
-        console.print(
-            "[red]Streamlit UI requires the 'ui' extra:[/red] "
-            "[cyan]pip install lorewiki[ui][/cyan]\n"
-            f"(missing: {exc.name})"
-        )
-        raise typer.Exit(code=1) from exc
-
-    console.print(
-        Panel(
-            f"[green]Launching Streamlit UI on[/green] "
-            f"[bold]http://127.0.0.1:{port}[/bold]",
-            title="lorewiki ui",
-            border_style="green",
-        )
-    )
-    _launch_streamlit(port=port, headless=headless)
-    raise typer.Exit(0)
 
 
 @app.command()
