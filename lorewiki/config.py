@@ -183,15 +183,41 @@ def load_config(
         effective_topic = _read_current_topic_file()
 
     topic_cfg: dict[str, Any] = {}
+    explicit_project_dir = project_dir is not None
     if effective_topic:
         topic_path = USER_TOPICS_ROOT / effective_topic / "config.toml"
         topic_cfg = _load_toml(topic_path)
+        # When a topic is active AND no explicit project_dir was passed,
+        # treat the topic root itself as the project_dir — the per-topic
+        # config.toml (if any) is the project's source of truth and we
+        # should NOT also consult the cwd's .lorewiki/config.toml, which
+        # belongs to the legacy per-wiki mode and would otherwise shadow
+        # the topic. Tests that pass an explicit project_dir (e.g. the
+        # config suite's tmp_path fixtures) keep their expected behaviour.
+        if not (overrides and overrides.get("wiki_path")) and not explicit_project_dir:
+            project_dir = USER_TOPICS_ROOT / effective_topic
 
     project_dir = (project_dir or Path.cwd()).resolve()
     project_cfg = _load_toml(project_dir / PROJECT_CONFIG_REL)
 
+    # When the active topic wins (no explicit --path, no explicit
+    # project_dir), pin the topic root as wiki_path. Without this,
+    # an empty merged dict falls through to LoreWikiConfig's default
+    # of ``~/wiki`` — i.e. the legacy per-wiki directory — even
+    # though the user clearly asked for the topic mode.
+    if (
+        effective_topic
+        and not (overrides and overrides.get("wiki_path"))
+        and not explicit_project_dir
+    ):
+        merged_wiki_path = str(USER_TOPICS_ROOT / effective_topic)
+    else:
+        merged_wiki_path = None
+
     merged = _deep_merge(user_cfg, topic_cfg)
     merged = _deep_merge(merged, project_cfg)
+    if merged_wiki_path is not None and "wiki_path" not in merged:
+        merged["wiki_path"] = merged_wiki_path
     if overrides:
         merged = _deep_merge(merged, overrides)
     try:

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from lorewiki import topic as _topic
 from lorewiki.topic import (
     USER_TOPICS_ROOT,
     TopicManager,
@@ -371,7 +372,9 @@ def test_delete_clears_current_pointer_if_active(fake_home: Path) -> None:
     mgr.delete("react")
     assert mgr.current() is None
     # Use the resolved path so the fixture's monkeypatched CURRENT_FILE is honoured.
-    fake_current = USER_TOPICS_ROOT.parent / "current"
+    # Fetch through the module so the fixture's monkeypatch (rather than the
+    # top-of-file import binding, which already captured the real home) is used.
+    fake_current = _topic.USER_TOPICS_ROOT.parent / "current"
     assert not fake_current.exists()
 
 
