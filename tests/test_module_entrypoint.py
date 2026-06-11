@@ -41,5 +41,5 @@ def test_python_m_lorewiki_version() -> None:
 def test_python_m_lorewiki_help_contains_subcommands() -> None:
     result = _run_lorewiki_subprocess(["--help"])
     assert result.returncode == 0, result.stderr
-    for cmd in ("init", "index", "search", "ask", "ui", "mcp", "rest", "config"):
+    for cmd in ("init", "index", "search", "ask", "mcp", "rest", "config", "topic"):
         assert cmd in result.stdout, f"sub-command {cmd!r} missing from --help"

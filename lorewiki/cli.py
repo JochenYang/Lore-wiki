@@ -136,34 +136,6 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
-def _web_callback(ctx: typer.Context, value: bool) -> None:
-    """Top-level ``--web`` shortcut: print the banner and launch the UI.
-
-    LoreWiki no longer ships a built-in web UI; the recommended way
-    to consume the data is via the REST API, the MCP server, the CLI
-    itself, or by opening the active topic's vault directory in any
-    Markdown editor (Obsidian, VS Code, etc.). This callback stays
-    in the code only so that ``lorewiki --web`` prints a helpful
-    hint instead of "no such option" for users on older 0.1.0 docs.
-    """
-    if not value:
-        return
-    _print_banner()
-    console.print(
-        Panel(
-            "[yellow]lorewiki no longer ships a built-in web UI in 0.1.0.[/yellow]\n\n"
-            "Consume the knowledge base via:\n"
-            "  [cyan]lorewiki search / ask / browse[/cyan]  (CLI)\n"
-            "  [cyan]lorewiki rest --port 8000[/cyan]        (REST API, see /docs)\n"
-            "  [cyan]lorewiki mcp[/cyan]                    (MCP stdio server)\n"
-            "  [cyan]the vault dir in Obsidian / VS Code[/cyan]  (Markdown)",
-            title="lorewiki --web",
-            border_style="yellow",
-        )
-    )
-    raise typer.Exit(0)
-
-
 def _help_callback(ctx: typer.Context, value: bool) -> None:
     """Top-level ``--help`` / ``-h`` shortcut that prepends the banner.
 
@@ -204,20 +176,6 @@ def main(
             "-h",
             help="Show this message and exit.",
             callback=_help_callback,
-            is_eager=True,
-        ),
-    ] = False,
-    web: Annotated[
-        bool,
-        typer.Option(
-            "--web",
-            help=(
-                "Deprecated: lorewiki no longer ships a built-in web UI. "
-                "Use `lorewiki rest`, `lorewiki mcp`, or open the vault "
-                "in a Markdown editor instead. This flag is kept as a "
-                "no-op alias that prints a migration hint."
-            ),
-            callback=_web_callback,
             is_eager=True,
         ),
     ] = False,

@@ -32,7 +32,7 @@ def test_version_flag(runner: CliRunner) -> None:
 def test_help_lists_all_subcommands(runner: CliRunner) -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    for cmd in ("init", "index", "status", "search", "ask", "ui", "mcp", "rest", "config"):
+    for cmd in ("init", "index", "status", "search", "ask", "mcp", "rest", "config", "topic"):
         assert cmd in result.stdout, f"sub-command {cmd!r} missing from --help"
 
 
