@@ -52,29 +52,12 @@ from lorewiki.utils.logger import get_logger
 def _force_utf8_streams() -> None:
     """Force UTF-8 on stdout/stderr at import time.
 
-    Without this, ``--raw`` JSON containing CJK characters — and the
-    block-character LOREWIKI banner — become mojibake on Windows shells
-    whose default code page is GBK (cp936). We do two things on Windows:
-
-    1. Call ``SetConsoleOutputCP(65001)`` via ctypes so the *console host*
-       (conhost / Windows Terminal) actually decodes the bytes as UTF-8
-       and renders box characters with a true Unicode font fallback.
-    2. Reconfigure the Python TextIOWrapper so any out-of-band writes
-       from the interpreter itself are also UTF-8.
-
-    The ctypes call is a no-op on non-Windows and a best-effort fallback
-    on Windows (the API exists since Windows 2000, but is best-effort in
-    case the process has no console, e.g. a captured test pipe).
+    Without this, ``--raw`` JSON containing CJK characters becomes
+    mojibake on Windows shells whose default code page is GBK
+    (cp936). Python 3.7+ exposes ``TextIOWrapper.reconfigure``; we
+    guard with ``hasattr`` so that non-standard stdouts captured by
+    tests don't crash the CLI.
     """
-    if sys.platform == "win32":
-        try:
-            import ctypes  # noqa: PLC0415
-
-            ctypes.windll.kernel32.SetConsoleOutputCP(65001)  # type: ignore[attr-defined]
-        except (OSError, AttributeError):
-            # No console (piped capture) or unsupported platform variant;
-            # fall through to the TextIOWrapper reconfig below.
-            pass
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             with contextlib.suppress(OSError, ValueError):
@@ -101,7 +84,17 @@ _BANNER_HELP = "\n".join(_BANNER_LINES) + "\n"
 
 
 def _print_banner() -> None:
-    """Print the LoreWiki ASCII banner (cyan, bold) with a tagline."""
+    """Print the LOREWIKI block-character banner in cyan + bold.
+
+    Assumes a UTF-8 host terminal (Windows Terminal, PowerShell 7+,
+    VS Code, any modern Linux/macOS console). Legacy conhost hosts
+    with a non-UTF-8 code page (e.g. PowerShell 5.1 + ``chcp 936``)
+    will see best-fit mojibake — we accept that limitation rather
+    than ship a degraded ASCII banner, mirroring how ``cargo``,
+    ``deno``, ``pnpm`` and ``mmx`` (the project the design was
+    inspired by) all behave. Users on legacy hosts can run
+    ``chcp 65001`` once per session for the full banner.
+    """
     console.print(_BANNER_HELP.rstrip(), style="bold cyan", highlight=False)
     console.print(
         f"  [dim]local-first knowledge base \u00b7 v{__version__}[/dim]",
