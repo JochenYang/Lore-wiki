@@ -52,11 +52,29 @@ from lorewiki.utils.logger import get_logger
 def _force_utf8_streams() -> None:
     """Force UTF-8 on stdout/stderr at import time.
 
-    Without this, ``--raw`` JSON containing CJK characters becomes mojibake
-    on Windows shells whose default code page is GBK (cp936). Python 3.7+
-    exposes ``TextIOWrapper.reconfigure``; we guard with ``hasattr`` so that
-    non-standard stdouts captured by tests don't crash the CLI.
+    Without this, ``--raw`` JSON containing CJK characters — and the
+    block-character LOREWIKI banner — become mojibake on Windows shells
+    whose default code page is GBK (cp936). We do two things on Windows:
+
+    1. Call ``SetConsoleOutputCP(65001)`` via ctypes so the *console host*
+       (conhost / Windows Terminal) actually decodes the bytes as UTF-8
+       and renders box characters with a true Unicode font fallback.
+    2. Reconfigure the Python TextIOWrapper so any out-of-band writes
+       from the interpreter itself are also UTF-8.
+
+    The ctypes call is a no-op on non-Windows and a best-effort fallback
+    on Windows (the API exists since Windows 2000, but is best-effort in
+    case the process has no console, e.g. a captured test pipe).
     """
+    if sys.platform == "win32":
+        try:
+            import ctypes  # noqa: PLC0415
+
+            ctypes.windll.kernel32.SetConsoleOutputCP(65001)  # type: ignore[attr-defined]
+        except (OSError, AttributeError):
+            # No console (piped capture) or unsupported platform variant;
+            # fall through to the TextIOWrapper reconfig below.
+            pass
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             with contextlib.suppress(OSError, ValueError):
