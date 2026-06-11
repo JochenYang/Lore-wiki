@@ -1,0 +1,84 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build + verify only, do not publish."
+        required: false
+        default: "false"
+
+jobs:
+  publish:
+    name: Build + publish
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # required for PyPI trusted publishing (OIDC)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # so setup-python can read the version tag
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "build>=1.2" "hatchling>=1.27" "twine>=6.1"
+
+      - name: Run tests
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pytest -q
+
+      - name: Run linter
+        run: python -m ruff check lorewiki skills tests
+
+      - name: Build wheel + sdist
+        run: python -m build
+
+      - name: Verify metadata
+        run: python -m twine check dist/*
+
+      - name: Publish to PyPI
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != 'true') }}
+        uses: pypa/gh-action-pypi-publish@release
+        with:
+          packages-dir: dist/
+          # No password / token: this action uses the OIDC id-token
+          # granted by `permissions: id-token: write` above to obtain a
+          # short-lived PyPI upload token from the trusted publisher
+          configured at https://pypi.org/manage/account/publishing/.
+
+      - name: Publish to npm (thin shim)
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != 'true') }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # The npm thin shim is a 7-file wrapper at the repo root
+          # (package.json + bin/lorewiki.js + scripts/postinstall.js
+          # + scripts/preuninstall.js). `npm pack` from the repo
+          # root bundles exactly those files (the .npmignore
+          # excludes everything else), so we can run it without
+          # changing directory.
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::warning::NPM_TOKEN secret is not set; skipping npm publish."
+            exit 0
+          fi
+          echo "//registry.npmjs.org/:_authToken=$NODE_AUTH_TOKEN" > "$HOME/.npmrc"
+          npm pack --pack-destination /tmp/npm-pack/ 2>&1 || true
+          if [ -f /tmp/npm-pack/lorewiki-*.tgz ]; then
+            npm publish /tmp/npm-pack/lorewiki-*.tgz --access public \
+              || echo "::warning::npm publish failed (non-fatal; PyPI succeeded)"
+          else
+            echo "::warning::no lorewiki-*.tgz produced; skipping npm publish"
+          fi
