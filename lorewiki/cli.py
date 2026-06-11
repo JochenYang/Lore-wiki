@@ -146,6 +146,24 @@ def _launch_streamlit(port: int, headless: bool) -> None:
     caller decides whether to open a browser tab via ``headless``.
     """
     script_path = Path(ui_module.__file__).resolve()
+
+    # Skip Streamlit's "Welcome to Streamlit / enter your email"
+    # onboarding screen on first run. The actual switch is
+    # ~/.streamlit/credentials.toml — if it does not exist,
+    # Streamlit pauses the first request to ask the user for an
+    # email (which the user can leave blank) before serving the
+    # real app, and that pause reads as ERR_CONNECTION_REFUSED in
+    # the browser tab. Pre-seeding the file with an empty email
+    # makes Streamlit skip the panel and serve lorewiki directly.
+    streamlit_config_dir = Path.home() / ".streamlit"
+    streamlit_config_dir.mkdir(parents=True, exist_ok=True)
+    credentials_path = streamlit_config_dir / "credentials.toml"
+    if not credentials_path.exists():
+        credentials_path.write_text(
+            '[general]\nemail = ""\n',
+            encoding="utf-8",
+        )
+
     args = [
         sys.executable,
         "-m",
@@ -156,10 +174,8 @@ def _launch_streamlit(port: int, headless: bool) -> None:
         str(port),
         "--server.address",
         "127.0.0.1",
-        # Skip Streamlit's "Welcome to Streamlit / enter your email"
-        # onboarding screen on first run — lorewiki's own panel
-        # already tells the user how to stop the server, and we don't
-        # need to phone home for anonymous usage stats.
+        # Don't phone home for anonymous usage stats either; the
+        # credentials file we just wrote already disabled that.
         "--browser.gatherUsageStats",
         "false",
     ]
