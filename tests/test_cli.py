@@ -32,7 +32,7 @@ def test_version_flag(runner: CliRunner) -> None:
 def test_help_lists_all_subcommands(runner: CliRunner) -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    for cmd in ("init", "index", "status", "search", "ask", "mcp", "rest", "config", "topic"):
+    for cmd in ("init", "index", "status", "search", "ask", "config", "topic"):
         assert cmd in result.stdout, f"sub-command {cmd!r} missing from --help"
 
 
@@ -62,5 +62,5 @@ def test_print_phase_status_lists_phases(capsys: pytest.CaptureFixture[str]) -> 
     print_phase_status()
     captured = capsys.readouterr()
     combined = captured.out + captured.err
-    for marker in ("phase status", "bootstrap", "BM25", "RRF", "REST", "MCP"):
+    for marker in ("phase status", "bootstrap", "BM25", "RRF"):
         assert marker.lower() in combined.lower(), f"missing marker {marker!r}"

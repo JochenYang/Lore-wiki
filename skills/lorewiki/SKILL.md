@@ -1,16 +1,18 @@
 ﻿---
 name: lorewiki
-description: "Local-first Markdown knowledge base with hybrid retrieval (SQLite FTS5 trigram tokenizer + heading hierarchy + RRF fusion) and optional LLM answer generation (Ollama or OpenAI-compatible). Use when the user wants to search, ask, browse, or write to a documentation wiki; persist a learning, decision, or postmortem into a queryable store; or when they say 'wiki', 'knowledge base', '知识库', '查文档', '查 API', '查 wiki', 'lorewiki', 'internal docs', 'runbook', 'postmortem', 'team docs'. Two wiki-addressing modes: (1) global topic under ~/lorewiki/topics/<name>/ (recommended, set once via `lorewiki topic use <name>`), (2) per-project via `lorewiki --path <wiki_root>` for ad-hoc queries — always prefer the active topic and only fall back to --path when the user explicitly names a project directory. CLI is one shell call per command with --raw JSON output; no daemon, no MCP client config, no server to keep alive."
+description: "Local-first Markdown knowledge base with hybrid retrieval (SQLite FTS5 trigram tokenizer + heading hierarchy + RRF fusion) and optional LLM answer generation (Ollama or OpenAI-compatible). Use when the user wants to search, ask, browse, or write to a documentation wiki; persist a learning, decision, or postmortem into a queryable store; or when they say 'wiki', 'knowledge base', '知识库', '查文档', '查 API', '查 wiki', 'lorewiki', 'internal docs', 'runbook', 'postmortem', 'team docs'. Two wiki-addressing modes: (1) global topic under ~/lorewiki/topics/<name>/ (recommended, set once via `lorewiki topic use <name>`), (2) per-project via `lorewiki --path <wiki_root>` for ad-hoc queries — always prefer the active topic and only fall back to --path when the user explicitly names a project directory. CLI is one shell call per command with structured JSON output by default for `search`/`show`/`tree`; no daemon, no server, no client config."
 ---
 
 # lorewiki
 
 Local-first Markdown knowledge base. Index a directory of `.md` files into
-SQLite + FTS5, then retrieve / answer / browse via the `lorewiki` CLI.
+SQLite + FTS5, then retrieve / answer / browse / author via the `lorewiki` CLI.
 
-**Why this skill instead of MCP**: every command is one shell call, output
-is plain JSON when `--raw` is used, no client config needed, no daemon to
-keep alive. Works inside opencode / Codex / Aider / cron / CI scripts.
+The single binary is the only runtime surface — there is no REST or
+MCP server to wire up. Works inside opencode / Codex / Aider / cron / CI
+scripts. For human consumption the CLI also ships a `show` /
+`tree` / `status` command that prints Rich tables; for agents, the
+same commands emit structured JSON.
 
 ## When To Use
 
@@ -21,9 +23,11 @@ Invoke this skill whenever the user wants to:
 - **Ask** a question that should be answered from team docs (`lorewiki ask`).
   Always degrades gracefully to "top-K chunks + notice" when no LLM is
   configured — never wrap with try/except for "LLM unavailable".
-- **Browse** the hierarchy tree to discover what modules exist.
-- **Write** a new note / decision / postmortem to the wiki (author a `.md`
-  file with frontmatter, drop it under the right module, re-index).
+- **Browse** the hierarchy tree to discover what modules exist
+  (`lorewiki tree`).
+- **Author** a new note / decision / postmortem from the CLI
+  (`lorewiki add` — writes a Markdown file with frontmatter and
+  auto-reindexes so the new doc is immediately retrievable).
 - **Index** a brand-new wiki directory or refresh after edits.
 - **Inspect** index health (chunk count, last-indexed timestamp, db size).
 
@@ -386,14 +390,30 @@ lorewiki config set llm.openai_base_url '"https://openrouter.ai/api/v1"'
 > self-hosted vLLM-compatible endpoint, or wait for phase-7 Azure
 > support (open an issue if you need it sooner).
 
-### 7. Spawn the REST server (optional, for browser / other tools)
+### 7. Author a note (writes + re-indexes in one step)
 
-Long-running; the user should run this in their own terminal, not the agent's:
+Long-running batch ingestion is the indexer's job; for a single
+note the CLI ships `lorewiki add`:
 
-```powershell
-lorewiki rest --port 8000 --path "<WIKI>"
-# Swagger UI at http://127.0.0.1:8000/docs
+```bash
+# Inline body
+lorewiki add \
+  --title "Python Design" \
+  --module patterns \
+  --tag python --tag design \
+  --body "Some deep details about Python design pattern."
+
+# Or pipe from stdin
+echo "# Inferred Title\n\nbody text" | lorewiki add --module notes
 ```
+
+The file lands at `<wiki>/<module>/<slug>.md`; the slug is derived
+from the title. After a successful write, an incremental
+`build_index` runs so the new doc is immediately retrievable via
+`lorewiki search`. Use `--raw` for machine-readable JSON output,
+`--force` to overwrite an existing file, and the path-traversal
+check will reject any `--module` value that resolves outside the
+wiki root.
 
 ## Modes (`--mode` flag for search / configured for ask)
 
@@ -402,12 +422,13 @@ lorewiki rest --port 8000 --path "<WIKI>"
 | `mix`     | Almost everything (default).                        | RRF-fused BM25 + hierarchy. Highest recall. |
 | `bm25`    | Exact-term / English / code-symbol queries.         | FTS5 trigram + LIKE fallback for short CJK. |
 | `hierarchy` | "Show me everything under module X" style queries.| Walks the module tree from matched node.    |
-| `vector`  | Not implemented yet — silently falls back to `mix`. | Reserved for the phase-6 sqlite-vec layer.  |
+| `vector`  | Opt-in: `pip install lorewiki[vector]`. Falls back to `mix` until then. | Reserved for the sqlite-vec layer.  |
 
 ## Output Discipline
 
-- **Always pass `--raw`** when you (the agent) plan to parse the result;
-  the pretty terminal output is for humans.
+- **`search` already defaults to JSON** — no flag needed. Only `ask`,
+  `topic list`, `topic suggest`, and `show` have a `--raw` (for those,
+  `--raw` is *opt-in* to switch off the human-friendly default).
 - **Cite by `doc_path`** in your final answer (`[api/user/auth.md]`), not by
   internal chunk IDs.
 - If the wiki has nothing relevant (`hits == []`), say so plainly. Do NOT
@@ -419,7 +440,7 @@ lorewiki rest --port 8000 --path "<WIKI>"
 
 | Pitfall                                                              | Avoidance                                                                                                                             |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Calling `lorewiki rest` in the agent's bash and waiting on it — these are blocking servers and will hang the turn. | Tell the user to run them in their own terminal. For "verify REST works", call `Invoke-RestMethod http://127.0.0.1:<port>/health` instead. |
+| Calling `lorewiki rest` / `lorewiki mcp` in the agent's bash and waiting on it — these are blocking servers and will hang the turn. | Tell the user to run them in their own terminal. For "verify REST works", call `Invoke-RestMethod http://127.0.0.1:<port>/health` instead. |
 | Searching with a 1-2 character CJK query and getting "0 hits".       | Combine with at least one more char or use `--mode bm25` which falls back to LIKE for short queries.                                  |
 | Forgetting `--path` and assuming `cwd` has a wiki config.            | Always pass `--path`. If the user is ambiguous, follow the priority chain in [Path Handling Convention](#path-handling-convention).   |
 | Editing a `.md` and not re-indexing.                                 | `lorewiki index --path "<WIKI>"` is incremental — unchanged files skip; just run it.                                                  |
@@ -435,11 +456,12 @@ lorewiki --version
 lorewiki init     --path "<WIKI>"
 lorewiki index    --path "<WIKI>" [--rebuild]
 lorewiki status   --path "<WIKI>"
-lorewiki search   "<QUERY>" --path "<WIKI>" --mode {mix|bm25|hierarchy} --top-k N --raw
-lorewiki ask      "<QUERY>" --path "<WIKI>" --top-k N --raw
+lorewiki search   "<QUERY>" --path "<WIKI>" --mode {mix|bm25|hierarchy} --top-k N   # default: JSON
+lorewiki show     "<DOC_PATH>" --path "<WIKI>" [--raw]                              # default: cleaned body
+lorewiki tree     "[<PREFIX>]" --path "<WIKI>" [--depth N]                         # hierarchy view
+lorewiki add      --title "<T>" [--module <M>] [--body <B> | --file <F> | stdin]   # author + reindex
+lorewiki ask      "<QUERY>" --path "<WIKI>" --top-k N --raw                         # JSON (default: Markdown)
 lorewiki config   {list|get|set} ... --path "<WIKI>"
-lorewiki rest     --port 8000  --path "<WIKI>"    # long-running, user runs it
-lorewiki mcp      --path "<WIKI>"                  # long-running, MCP stdio
 ```
 
 ## Decision Cheat-Sheet
@@ -451,4 +473,4 @@ lorewiki mcp      --path "<WIKI>"                  # long-running, MCP stdio
 | "what modules does the wiki have?"                      | `lorewiki status --path <WIKI>`                               |
 | "save this decision to the wiki"                        | Write `.md` with frontmatter → `lorewiki index`               |
 | "why does this query return no results?"                 | Re-run with `--mode bm25 --raw` to inspect scores             |
-| "wire lorewiki into Claude Desktop / Cursor"             | Edit MCP config; this skill is for direct CLI use             |
+| "wire lorewiki into Claude Desktop / Cursor"             | Use the opencode skill; this skill is the canonical entry point       |

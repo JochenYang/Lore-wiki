@@ -13,23 +13,21 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&logoColor=white&style=for-the-badge)](https://www.python.org/)
 [![SQLite](https://img.shields.io/badge/SQLite-+FTS5-003B57?logo=sqlite&logoColor=white&style=for-the-badge)](https://www.sqlite.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-REST-009688?logo=fastapi&logoColor=white&style=for-the-badge)](https://fastapi.tiangolo.com/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-REST-009688?logo=fastapi&logoColor=white&style=for-the-badge)](https://fastapi.tiangolo.com/)
-[![MCP](https://img.shields.io/badge/MCP-1.x-1E90FF?logo=modelcontextprotocol&logoColor=white&style=for-the-badge)](https://modelcontextprotocol.io/)
-[![MCP](https://img.shields.io/badge/MCP-1.x-1E90FF?logo=modelcontextprotocol&logoColor=white&style=for-the-badge)](https://modelcontextprotocol.io/)
 
 ### Tools
 
 [![uv](https://img.shields.io/badge/uv-pkg%20%2B%20tool-5C2D91?logo=astral&logoColor=white&style=for-the-badge)](https://docs.astral.sh/uv/)
 [![ruff](https://img.shields.io/badge/ruff-0%20errors-D7FF64?logo=ruff&logoColor=black&style=for-the-badge)](https://docs.astral.sh/ruff/)
-[![pytest](https://img.shields.io/badge/pytest-198%20passed-0A9EDC?logo=pytest&logoColor=white&style=for-the-badge)](tests/)
+[![pytest](https://img.shields.io/badge/pytest-240%20passed-0A9EDC?logo=pytest&logoColor=white&style=for-the-badge)](tests/)
 [![License](https://img.shields.io/badge/License-MIT-22B14C?style=for-the-badge)](LICENSE)
 
 ---
 
-LoreWiki indexes your team's Markdown wiki and exposes it through a CLI,
-optional REST API, MCP server consumable by Claude Desktop /
-Cursor / other LLM clients.
+LoreWiki indexes your team's Markdown wiki and exposes it through a single
+CLI plus an [opencode](https://opencode.ai) skill consumable by Codex /
+Aider / Claude Code / any shell-using LLM agent. The vault is also a
+plain folder of `.md` files, so Obsidian / Logseq / VS Code can open
+it directly.
 
 **Key numbers from the example_wiki benchmark** (10 hand-authored queries):
 
@@ -47,10 +45,13 @@ Cursor / other LLM clients.
   short CJK queries (e.g. `"幂等"` (idempotent), `"认证"` (auth)).
 - **Optional LLM integration** (Ollama or OpenAI-compatible). Gracefully
   degrades to "return the top-k chunks" when the LLM is offline.
-- **Four entry points** sharing one core: CLI, REST (FastAPI),
-  MCP stdio (for Claude Desktop / Cursor / etc.), and the active
-  topic's vault directory opened in any Markdown editor.
-  agent skill (for opencode / Codex / Aider / any shell-using agent).
+- **Single-binary CLI + opencode skill**: one command surface, one
+  opencode skill (or any shell-using agent) for AI consumption, and
+  the on-disk vault as the "UI". No server processes, no extra
+  dependencies.
+- **One `lorewiki add`** to author a note end-to-end (body via
+  `--body` / `--file` / stdin) with auto-reindex so the new doc is
+  immediately retrievable.
 - **Second-brain / topics**: one isolated vault per knowledge domain
   under `~/lorewiki/topics/`, shared across every project.
 - **Zero external services**: SQLite is the only dependency for retrieval.
@@ -62,12 +63,12 @@ Cursor / other LLM clients.
 
 ```bash
 # Editable install (recommended for active development)
-uv tool install --editable . --with fastapi --with "uvicorn[standard]" --with mcp
+uv tool install --editable .
 
 # Or plain pip
-pip install -e .                 # core CLI + REST + MCP
+pip install -e .                 # core CLI
 pip install -e ".[dev]"          # add pytest / ruff / coverage
-pip install -e ".[all]"          # everything except the dropped [ui] extra
+pip install -e ".[vector]"       # opt-in: vector retrieval (sqlite-vec)
 ```
 
 Python **3.10+** required. After install, `lorewiki --version`
@@ -93,7 +94,11 @@ lorewiki search "用户登录接口" --path ./my-wiki --mode mix --top-k 5
 # 4. Ask (LLM-assisted answer, gracefully falls back to top chunks)
 lorewiki ask "如何实现幂等重试" --path ./my-wiki
 
-# 5. Browse the index status
+# 5. Or author a note from the CLI (writes + re-indexes in one go)
+echo "Some deep details about Python design pattern." \
+  | lorewiki add --title "Python Design" --module "patterns" --tag python,design
+
+# 6. Browse the index status
 lorewiki status --path ./my-wiki
 ```
 
@@ -226,71 +231,22 @@ If the LLM is unreachable, `ask` returns the top-K chunks with a clear
 
 ## REST API
 
-```bash
-lorewiki rest --port 8000 --path ./my-wiki
-# Swagger UI:    http://127.0.0.1:8000/docs
-# OpenAPI JSON:  http://127.0.0.1:8000/openapi.json
-```
+The FastAPI / REST surface was removed in 0.2.0. The CLI is the only
+programmatic surface; agents consume it through the opencode skill
+(see below) or by shelling out.
 
-Endpoints (all return JSON):
-
-| Method | Path                  | Description                                               |
-|--------|-----------------------|-----------------------------------------------------------|
-| GET    | `/health`             | Liveness probe (`{"status": "ok"}`)                       |
-| GET    | `/status`             | Index statistics (chunks, docs, last-indexed-at, db size) |
-| POST   | `/search`             | `{query, top_k, mode}` → ranked hits                      |
-| POST   | `/ask`                | `{query, top_k}` → answer + citations                     |
-| GET    | `/modules`            | Top-level module list                                     |
-| GET    | `/module/{path:path}` | Sub-tree of a hierarchy node                              |
-
-Example:
-
-```bash
-curl -X POST http://127.0.0.1:8000/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "幂等设计", "top_k": 3, "mode": "mix"}'
-```
-
-## REST API (and the Markdown vault as your "UI")
-
-```bash
-lorewiki rest --port 8000 --topic wechat-miniprogram-api
-# Swagger UI:    http://127.0.0.1:8000/docs
-# OpenAPI JSON:  http://127.0.0.1:8000/openapi.json
-```
+## The Markdown vault as your "UI"
 
 LoreWiki no longer ships a built-in web UI in 0.1.0. The recommended
 ways to consume the data are:
 
-- **REST API** (above) — full OpenAPI surface, scrape-friendly.
-- **MCP stdio server** — wire lorewiki into Claude Desktop / Cursor /
-  opencode / Codex as a tool the model can call.
+- **The CLI** (this document) — the single source of truth.
 - **The active topic's vault directory** — every topic is a plain
   folder of `.md` files under `~/.lorewiki/topics/<name>/` (or
   `<wiki>/.lorewiki/...` in per-wiki mode). Open it in Obsidian,
   VS Code, Cursor, or any Markdown editor for the full rendered
   view, no extra tooling required.
-
-## MCP server (Claude Desktop / Cursor)
-
-In your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`
-on macOS, `%APPDATA%/Claude/claude_desktop_config.json` on Windows):
-
-```json
-{
-  "mcpServers": {
-    "lorewiki": {
-      "command": "lorewiki",
-      "args": ["mcp", "--path", "/absolute/path/to/my-wiki"]
-    }
-  }
-}
-```
-
-Exposed tools:
-
-- `search_lorewiki(query, top_k=5, mode="mix")` — returns ranked chunks.
-- `get_module_summary(module_path="")` — explores the hierarchy tree.
+- **The opencode skill** (below) — for AI agents.
 
 ## opencode skill (Codex / Aider / any shell-using agent)
 
@@ -298,7 +254,7 @@ For agents that can already run shell commands, the CLI is lighter-weight
 than MCP. LoreWiki ships an official [opencode](https://opencode.ai) skill
 in [`skills/lorewiki/SKILL.md`](skills/lorewiki/SKILL.md).
 
-One-time install (after `uv tool install --editable . --with fastapi --with "uvicorn[standard]" --with mcp` puts `lorewiki` on your PATH):
+One-time install (after `uv tool install --editable .` puts `lorewiki` on your PATH):
 
 ```powershell
 # Windows
@@ -320,7 +276,7 @@ Restart opencode and the agent will auto-trigger the skill on cues like
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│           CLI · REST · MCP stdio · vault-as-folder       │
+│            CLI + opencode skill · vault-as-folder          │
 ├─────────────────────────────────────────────────────────────┤
 │  Indexer  │  Retriever (BM25 + Hierarchy + RRF)  │  LLM    │
 ├─────────────────────────────────────────────────────────────┤
@@ -336,14 +292,8 @@ See `docs/lorewiki dev document.md` for the full design plan and
 ```bash
 pip install -e ".[dev]"
 ruff check lorewiki skills tests  # lint
-pytest -q                        # 198 unit + integration tests
+pytest -q                        # 240 unit + integration tests
 pytest --cov=lorewiki            # coverage report
-```
-
-Benchmarks (require `example_wiki/`):
-
-```bash
-python scripts/recall_phase2.py  # BM25 vs Hierarchy vs Mix recall comparison
 ```
 
 The `example_wiki/` directory is a curated 5-file benchmark
@@ -352,14 +302,10 @@ it is and how to use it.
 
 ## Roadmap
 
-- **Vector retrieval** (sqlite-vec + sentence-transformers) — opt-in.
-- **Async LLM client** — non-blocking REST `/ask` for concurrent requests.
-- **Streaming `ask` endpoint** (SSE).
+- **Vector retrieval** (sqlite-vec + sentence-transformers) — opt-in,
+  via `pip install lorewiki[vector]`.
 - **Incremental file-watcher** (`lorewiki update --watch`).
 - **PDF / Word ingestion** beyond Markdown.
-- **Editable Config form** in a future web UI (we removed the
-  Streamlit UI in 0.1.0; today the config is edited via
-  `lorewiki config set` or by editing `~/.lorewiki/config.toml`).
 - **Atomic write of `~/lorewiki/current`** (currently best-effort).
 
 ## Contributing

@@ -19,7 +19,6 @@ from lorewiki.indexer.cleaning import (
     strip_translation_footer,
 )
 
-
 # ---- strip_anchor_in_heading ----
 
 
