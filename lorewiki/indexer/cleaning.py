@@ -308,12 +308,92 @@ def clean_snippet(text: str) -> str:
     return text.rstrip()
 
 
+# ---- whole-file cleaning (for `lorewiki clean` on disk) --------------------
+
+# Matches a leading YAML frontmatter block: ``---\n...\n---\n`` at the very
+# start of the file. We keep the delimiters in the captured group so we can
+# re-emit the frontmatter verbatim.
+FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
+_FRONTMATTER_TITLE_RE = re.compile(
+    r"^(\s*title:\s+)(\"[^\"]*\"|'[^']*'|[^\n#]+)(\s*(?:#.*)?)$",
+    re.MULTILINE,
+)
+
+
+def _clean_frontmatter_title(fm_text: str) -> str:
+    """Strip a leading ``#`` from the ``title:`` field inside a frontmatter block.
+
+    YAML quoting is preserved: ``title: "#wx.foo()"`` becomes
+    ``title: "wx.foo()"``. Unquoted values are also handled.
+    """
+
+    def _replace(match: re.Match[str]) -> str:
+        prefix, raw_value, suffix = match.group(1), match.group(2), match.group(3)
+        quote = ""
+        value = raw_value
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+            quote = value[0]
+            value = value[1:-1]
+        cleaned = clean_title(value)
+        return f"{prefix}{quote}{cleaned}{quote}{suffix}"
+
+    return _FRONTMATTER_TITLE_RE.sub(_replace, fm_text)
+
+
+def split_frontmatter(text: str) -> tuple[str, str]:
+    """Split a Markdown file into ``(frontmatter, body)``.
+
+    The frontmatter is the leading ``---\\n...\\n---\\n`` block (including
+    the delimiter lines and the trailing newline). The body is everything
+    after. Files without a frontmatter return ``("", text)``.
+    """
+    match = FRONTMATTER_RE.match(text)
+    if match is None:
+        return "", text
+    return match.group(0), text[match.end():]
+
+
+def clean_markdown_file(text: str) -> str:
+    """Clean a complete Markdown file (frontmatter + body) for ``lorewiki clean``.
+
+    - Frontmatter block (if present) is preserved verbatim except for the
+      ``title:`` field, which gets a leading-``#`` stripped.
+    - Body is passed through :func:`clean_markdown` but the leading blank
+      line between ``---`` and the first body heading is preserved
+      (markdown convention — Obsidian breaks if you elide it).
+    - Trailing newline is preserved.
+
+    Idempotent: running twice on already-cleaned text is a no-op.
+    """
+    fm, body = split_frontmatter(text)
+
+    # Peel off the leading whitespace of the body (the conventional blank
+    # line between frontmatter and the first heading) so we can re-attach
+    # it after ``clean_markdown`` (which strips leading whitespace).
+    leading_ws = ""
+    body_content = body
+    while body_content and body_content[0] in ("\n", " ", "\t"):
+        leading_ws += body_content[0]
+        body_content = body_content[1:]
+
+    cleaned_body = clean_markdown(body_content)
+    if not cleaned_body.endswith("\n") and (body.endswith("\n") or body == ""):
+        cleaned_body += "\n"
+
+    cleaned_fm = _clean_frontmatter_title(fm) if fm else ""
+    if cleaned_fm and not cleaned_fm.endswith("\n"):
+        cleaned_fm += "\n"
+    return cleaned_fm + leading_ws + cleaned_body
+
+
 __all__ = [
     "clean_heading_path",
     "clean_markdown",
+    "clean_markdown_file",
     "clean_snippet",
     "clean_title",
     "compress_blank_lines",
+    "split_frontmatter",
     "strip_anchor_in_heading",
     "strip_boilerplate_blockquotes",
     "strip_breadcrumb_prefix",

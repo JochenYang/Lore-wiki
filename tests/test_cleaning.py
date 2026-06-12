@@ -7,9 +7,11 @@ import pytest
 from lorewiki.indexer.cleaning import (
     clean_heading_path,
     clean_markdown,
+    clean_markdown_file,
     clean_snippet,
     clean_title,
     compress_blank_lines,
+    split_frontmatter,
     strip_anchor_in_heading,
     strip_boilerplate_blockquotes,
     strip_breadcrumb_prefix,
@@ -342,3 +344,133 @@ def test_clean_markdown_preserves_code_blocks() -> None:
     assert "wx.foo({" in cleaned
     assert "id: \'x\'" in cleaned
     assert "Trailing text." in cleaned
+
+
+# ---- split_frontmatter ----
+
+
+def test_split_frontmatter_with_block() -> None:
+    text = "---\ntitle: foo\nmodule: bar\n---\n\n# Body\n"
+    fm, body = split_frontmatter(text)
+    assert fm == "---\ntitle: foo\nmodule: bar\n---\n"
+    assert body == "\n# Body\n"
+
+
+def test_split_frontmatter_no_block() -> None:
+    text = "# Just a title\n\nbody"
+    fm, body = split_frontmatter(text)
+    assert fm == ""
+    assert body == text
+
+
+# ---- clean_markdown_file ----
+
+
+def test_clean_markdown_file_strips_frontmatter_title_hash() -> None:
+    raw = (
+        "---\n"
+        'title: "#wx.foo()"\n'
+        'source_url: "https://example.com/wx.foo.html"\n'
+        "module: api\n"
+        "tags: [wechat, api]\n"
+        "---\n"
+        "\n"
+        "# [#](#wx-foo) wx.foo()\n"
+        "\n"
+        "body content\n"
+    )
+    cleaned = clean_markdown_file(raw)
+    # Frontmatter: title # stripped, others unchanged
+    assert 'title: "wx.foo()"' in cleaned
+    assert "module: api" in cleaned
+    assert "tags: [wechat, api]" in cleaned
+    # Body: anchor stripped
+    assert "# wx.foo()" in cleaned
+    assert "[#]" not in cleaned
+
+
+def test_clean_markdown_file_strips_translation_footer_in_body() -> None:
+    raw = (
+        "---\n"
+        'title: "#wx.foo()"\n'
+        "---\n"
+        "\n"
+        "# wx.foo()\n"
+        "\n"
+        "body\n"
+        "\n"
+        "The translations are provided by WeChat Translation ...\n"
+    )
+    cleaned = clean_markdown_file(raw)
+    assert "translations are provided" not in cleaned
+    assert "body" in cleaned
+
+
+def test_clean_markdown_file_no_frontmatter() -> None:
+    raw = "# title\n\nbody\n\nThe translations are provided by WeChat Translation\n"
+    cleaned = clean_markdown_file(raw)
+    assert cleaned.startswith("# title")
+    assert "translations" not in cleaned
+
+
+def test_clean_markdown_file_idempotent() -> None:
+    raw = (
+        "---\n"
+        'title: "#wx.foo()"\n'
+        "module: api\n"
+        "---\n"
+        "\n"
+        "# [#](#wx-foo) wx.foo()\n"
+        "\n"
+        "body\n"
+    )
+    once = clean_markdown_file(raw)
+    twice = clean_markdown_file(once)
+    assert once == twice
+
+
+def test_clean_markdown_file_preserves_unquoted_title() -> None:
+    raw = "---\ntitle: my title\n---\n\n# my title\n"
+    cleaned = clean_markdown_file(raw)
+    assert "title: my title" in cleaned
+
+
+def test_clean_markdown_file_preserves_blank_line_after_frontmatter() -> None:
+    """The blank line between ``---`` and the first heading must survive."""
+    raw = "---\ntitle: foo\n---\n\n# heading\n\nbody\n"
+    cleaned = clean_markdown_file(raw)
+    assert "---\n\n# heading" in cleaned
+    # Idempotent: cleaning an already-clean file returns the same bytes.
+    assert cleaned == clean_markdown_file(cleaned)
+
+
+def test_clean_markdown_file_idempotent_realistic_scraped_doc() -> None:
+    """A realistic WeChat-scraped file must clean to a stable form."""
+    raw = (
+        "---\n"
+        'title: "#wx.showShareMenu(Object object)"\n'
+        'source_url: "https://example.com/wx.showShareMenu.html"\n'
+        "module: api\n"
+        "---\n"
+        "\n"
+        "# [#](#wx-showShareMenu-Object-object) wx.showShareMenu(Object object)\n"
+        "\n"
+        "> 基础库 1.1.0 开始支持\n"
+        "\n"
+        "> **以 Promise 风格 调用**: 支持\n"
+        "\n"
+        "## 功能描述\n"
+        "\n"
+        "设置右上角点开的详情界面中的分享按钮是否可用\n"
+        "\n"
+        "The translations are provided by WeChat Translation\n"
+    )
+    once = clean_markdown_file(raw)
+    twice = clean_markdown_file(once)
+    assert once == twice
+    # And the cleaned form actually drops the boilerplate.
+    assert "基础库" not in once
+    assert "Promise" not in once
+    assert "[#]" not in once
+    assert "translations are provided" not in once
+    assert 'title: "wx.showShareMenu(Object object)"' in once

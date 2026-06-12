@@ -28,7 +28,7 @@ from lorewiki.config import (
     save_config,
 )
 from lorewiki.db import get_meta, open_db
-from lorewiki.indexer import build_index
+from lorewiki.indexer import build_index, iter_markdown_files
 from lorewiki.indexer import cleaning
 from lorewiki.llm import AnswerGenerator
 from lorewiki.retriever import (
@@ -633,8 +633,115 @@ def rest(
 
 
 # ---------------------------------------------------------------------------
-# show / tree
+# clean / show / tree
 # ---------------------------------------------------------------------------
+
+
+@app.command()
+def clean(
+    path: Annotated[
+        str | None,
+        typer.Option("--path", "-p", help="Project / wiki path."),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            "-n",
+            help="Report what would change, but do not write to disk.",
+        ),
+    ] = False,
+    no_backup: Annotated[
+        bool,
+        typer.Option(
+            "--no-backup",
+            help="Skip the safety backup. (You will not be able to roll back.)",
+        ),
+    ] = False,
+) -> None:
+    """Rewrite on-disk .md files to drop scraper boilerplate.
+
+    The indexer already cleans at index time, so ``search`` and ``tree``
+    return clean output regardless. This command is for users who want
+    the **on-disk vault** to look clean too — i.e. when they open the
+    topic folder in Obsidian / Logseq, the files have no translation
+    footer, no ``[\\#​](#anchor)`` heading markup, no ``> 基础库 X.X.X
+    开始支持`` blockquote, and no ``.html`` suffix on internal links.
+
+    A timestamped backup of every changed file is written to
+    ``<wiki>/.lorewiki/clean-backup/<UTC-timestamp>/<relative-path>``
+    unless ``--no-backup`` is given.
+
+    Reindex after running this so the SQLite index reflects the new
+    file contents (``lorewiki index`` is incremental).
+    """
+    from lorewiki.indexer.cleaning import clean_markdown_file
+
+    cfg = _resolve_config(path)
+    if not cfg.wiki_path.exists() or not cfg.wiki_path.is_dir():
+        console.print(f"[red]wiki path not found:[/red] {cfg.wiki_path}")
+        raise typer.Exit(code=2)
+    files = iter_markdown_files(cfg.wiki_path)
+    if not files:
+        console.print("[yellow]no markdown files found under[/yellow] " + str(cfg.wiki_path))
+        raise typer.Exit(code=0)
+
+    backup_root: Path | None = None
+    if not dry_run and not no_backup:
+        from datetime import datetime, timezone
+
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        backup_root = cfg.wiki_path / ".lorewiki" / "clean-backup" / stamp
+        backup_root.mkdir(parents=True, exist_ok=True)
+
+    changed = 0
+    unchanged = 0
+    errored = 0
+    for md_path in files:
+        try:
+            original = md_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            log.warning("read failed {}: {}", md_path, exc)
+            errored += 1
+            continue
+        cleaned = clean_markdown_file(original)
+        if cleaned == original:
+            unchanged += 1
+            continue
+        changed += 1
+        if dry_run:
+            continue
+        if backup_root is not None:
+            rel = md_path.relative_to(cfg.wiki_path)
+            backup_path = backup_root / rel
+            backup_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                backup_path.write_text(original, encoding="utf-8")
+            except OSError as exc:
+                log.warning("backup failed {}: {}", backup_path, exc)
+                errored += 1
+                continue
+        try:
+            md_path.write_text(cleaned, encoding="utf-8")
+        except OSError as exc:
+            log.warning("write failed {}: {}", md_path, exc)
+            errored += 1
+
+    summary = Table(title="lorewiki clean", show_header=False)
+    summary.add_row("Files scanned", str(len(files)))
+    summary.add_row("Changed", f"[green]{changed}[/green]" if changed else "0")
+    summary.add_row("Unchanged", str(unchanged))
+    if errored:
+        summary.add_row("Errors", f"[red]{errored}[/red]")
+    summary.add_row("Mode", "dry-run (no files written)" if dry_run else "wrote in place")
+    if backup_root is not None:
+        summary.add_row("Backup", str(backup_root))
+    console.print(summary)
+    if changed and not dry_run:
+        console.print(
+            "\n[dim]Hint: run[/dim] [cyan]lorewiki index[/cyan] [dim]to refresh "
+            "the SQLite index from the rewritten files.[/dim]"
+        )
 
 
 @app.command()

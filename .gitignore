@@ -37,6 +37,7 @@ desktop.ini
 # and keeps the repo small.
 **/.lorewiki/index.db
 **/.lorewiki/index.db-*
+**/.lorewiki/clean-backup/
 example_wiki/.lorewiki/
 
 # uv — uv.lock is *committed* for reproducible installs (uv's default).

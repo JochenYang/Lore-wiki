@@ -45,6 +45,11 @@ def _iter_markdown_files(wiki_path: Path) -> list[Path]:
     return out
 
 
+# Public alias (re-exported via __all__) so the ``lorewiki clean`` CLI can
+# walk the same set of files the indexer would.
+iter_markdown_files = _iter_markdown_files
+
+
 def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
@@ -265,4 +270,4 @@ def _doc_needs_rewrite(conn, doc_path: str, new_rows: list[DocumentChunk]) -> bo
     return any(existing.get(row.chunk_index) != row.content_hash for row in new_rows)
 
 
-__all__ = ["IndexerStats", "build_index"]
+__all__ = ["IndexerStats", "build_index", "iter_markdown_files"]
