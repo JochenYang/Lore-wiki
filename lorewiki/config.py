@@ -48,22 +48,6 @@ USER_CONFIG_PATH = USER_CONFIG_DIR / "config.toml"
 PROJECT_CONFIG_REL = Path(".lorewiki") / "config.toml"
 
 
-def _read_current_topic_file() -> str | None:
-    """Return the name of the active topic per ``~/lorewiki/current``,
-    or ``None`` if the file is missing / empty. Duplicated from
-    :mod:`lorewiki.topic` to avoid a circular import (config is
-    imported by topic callers indirectly via cli).
-    """
-    path = USER_CONFIG_DIR / "current"
-    if not path.is_file():
-        return None
-    try:
-        text = path.read_text(encoding="utf-8").strip()
-    except OSError:
-        return None
-    return text or None
-
-
 class MixWeights(BaseModel):
     """Per-retriever weights used by the RRF fusion (phase 2)."""
 
@@ -108,7 +92,7 @@ class LoreWikiConfig(BaseSettings):
     chunk_max_tokens: int = 800
     chunk_overlap_tokens: int = 100
     chunk_min_chars: int = 40
-    snippet_chars: int = 0
+    snippet_chars: int = 240
     llm: LLMConfig = Field(default_factory=LLMConfig)
     vector: VectorConfig = Field(default_factory=VectorConfig)
 
@@ -180,7 +164,8 @@ def load_config(
     if overrides and "topic" in overrides and overrides["topic"]:
         effective_topic = overrides["topic"]
     if not effective_topic:
-        effective_topic = _read_current_topic_file()
+        from lorewiki.utils.topic_shared import read_current_topic  # noqa: PLC0415
+        effective_topic = read_current_topic()
 
     topic_cfg: dict[str, Any] = {}
     explicit_project_dir = project_dir is not None

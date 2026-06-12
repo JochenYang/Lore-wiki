@@ -7,7 +7,6 @@
     "rag",
     "sqlite",
     "fts5",
-    "mcp",
     "llm",
     "cli",
     "wiki"
@@ -38,8 +37,5 @@
     "README.npm.md"
   ],
   "dependencies": {},
-  "devDependencies": {},
-  "engines": {
-    "node": ">=18"
-  }
+  "devDependencies": {}
 }

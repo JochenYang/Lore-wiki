@@ -51,6 +51,14 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from lorewiki.utils.logger import get_logger
+from lorewiki.utils.topic_shared import (
+    CURRENT_FILE,
+    USER_CONFIG_DIR,
+    USER_TOPICS_ROOT,
+)
+from lorewiki.utils.topic_shared import (
+    read_current_topic as _read_current_topic_shared,
+)
 
 log = get_logger(__name__)
 
@@ -69,9 +77,7 @@ _RESERVED_NAMES = frozenset({
     "con", "prn", "aux", "nul",  # Windows reserved device names
 })
 
-USER_CONFIG_DIR = Path.home() / ".lorewiki"
-USER_TOPICS_ROOT = USER_CONFIG_DIR / "topics"
-CURRENT_FILE = USER_CONFIG_DIR / "current"
+
 
 
 class TopicNameError(ValueError):
@@ -601,13 +607,7 @@ class TopicManager:
 
     @staticmethod
     def _read_current() -> str | None:
-        if not CURRENT_FILE.is_file():
-            return None
-        try:
-            text = CURRENT_FILE.read_text(encoding="utf-8").strip()
-        except OSError:
-            return None
-        return text or None
+        return _read_current_topic_shared()
 
     @staticmethod
     def _write_current(name: str | None) -> None:

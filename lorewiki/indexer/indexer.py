@@ -137,7 +137,9 @@ def build_index(cfg: LoreWikiConfig, *, rebuild: bool = False) -> IndexerStats:
     started = time.perf_counter()
     wiki_path = cfg.wiki_path
     db_path = cfg.db_path
-    assert db_path is not None  # set by LoreWikiConfig._resolve_paths
+    if db_path is None:
+        msg = "LoreWikiConfig.db_path must be resolved before indexing"
+        raise ValueError(msg)
 
     if not wiki_path.exists():
         msg = f"wiki_path does not exist: {wiki_path}"

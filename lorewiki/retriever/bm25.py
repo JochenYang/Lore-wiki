@@ -52,7 +52,9 @@ class BM25Retriever(BaseRetriever):
 
     @classmethod
     def from_config(cls, cfg: LoreWikiConfig) -> BM25Retriever:
-        assert cfg.db_path is not None
+        if cfg.db_path is None:
+            msg = "LoreWikiConfig.db_path must be resolved before building a retriever"
+            raise ValueError(msg)
         return cls(cfg.db_path, snippet_chars=cfg.snippet_chars)
 
     def search(self, query: str, *, top_k: int = 5) -> Sequence[SearchHit]:

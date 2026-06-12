@@ -24,6 +24,12 @@ def fake_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     monkeypatch.setattr("lorewiki.topic.USER_CONFIG_DIR", fake)
     monkeypatch.setattr("lorewiki.topic.USER_TOPICS_ROOT", fake / "topics")
     monkeypatch.setattr("lorewiki.topic.CURRENT_FILE", fake / "current")
+    # ``topic.py`` delegates the read of the active topic to
+    # ``utils.topic_shared``; the fixture must patch the constants in
+    # both modules for the test to see a hermetic fake home.
+    monkeypatch.setattr("lorewiki.utils.topic_shared.USER_CONFIG_DIR", fake)
+    monkeypatch.setattr("lorewiki.utils.topic_shared.USER_TOPICS_ROOT", fake / "topics")
+    monkeypatch.setattr("lorewiki.utils.topic_shared.CURRENT_FILE", fake / "current")
     # Also redirect the duplicate in lorewiki.config (it reads the same
     # path on its own) so that ``load_config`` sees the same fake home.
     monkeypatch.setattr("lorewiki.config.USER_CONFIG_DIR", fake)
@@ -349,6 +355,31 @@ def test_resolve_active_clears_stale_pointer(fake_home: Path) -> None:
     shutil.rmtree(target)
     assert mgr.resolve_active() is None
     assert mgr.current() is None  # stale pointer cleared
+
+
+def test_topic_show_does_not_print_duplicate_name_field(
+    fake_home: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Regression: ``lorewiki topic show`` used to print ``[bold]name[/bold]``
+    twice (a copy-paste bug). Ensure each field appears exactly once."""
+    from typer.testing import CliRunner
+
+    from lorewiki.cli.apps import app
+
+    runner = CliRunner()
+    mgr = TopicManager()
+    mgr.create("react")
+    mgr.use("react")
+    result = runner.invoke(app, ["topic", "show"])
+    assert result.exit_code == 0, result.output
+    # The Typer test runner strips Rich markup before printing, so the
+    # field labels appear as ``name    :``, ``root   :`` etc. We assert
+    # each label appears exactly once.
+    assert result.output.count("name    :") == 1, result.output
+    assert result.output.count("root   :") == 1, result.output
+    assert result.output.count("wiki   :") == 1, result.output
+    assert result.output.count("db     :") == 1, result.output
+    assert result.output.count("cfg    :") == 1, result.output
 
 
 # ---------------------------------------------------------------------------
