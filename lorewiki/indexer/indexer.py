@@ -1,4 +1,4 @@
-"""End-to-end indexer: walk wiki tree → parse → chunk → write SQLite + hierarchy."""
+"""End-to-end indexer: walk wiki tree → parse → clean → chunk → write SQLite + hierarchy."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 from lorewiki.config import LoreWikiConfig
 from lorewiki.db import open_db, set_meta
 from lorewiki.db.models import DocumentChunk, HierarchyNode
+from lorewiki.indexer import cleaning
 from lorewiki.indexer.chunker import Chunk, chunk_markdown, estimate_tokens
 from lorewiki.indexer.parser import ParsedDocument, parse_markdown
 from lorewiki.utils.logger import get_logger
@@ -55,8 +56,8 @@ def _chunk_to_row(parsed: ParsedDocument, chunk: Chunk) -> DocumentChunk:
         id=chunk_id,
         doc_path=parsed.path,
         chunk_index=chunk.chunk_index,
-        title=parsed.title,
-        heading_path=chunk.heading_path,
+        title=cleaning.clean_title(parsed.title),
+        heading_path=cleaning.clean_heading_path(chunk.heading_path),
         content=text,
         module=parsed.module,
         tags=parsed.tags,
@@ -76,6 +77,11 @@ def _build_hierarchy_nodes(parsed_docs: list[ParsedDocument]) -> list[HierarchyN
 
     A single synthetic root node (``id="__root__"``) parents every level-1
     module. The root is always inserted first.
+
+    Doc-node summaries are derived from the **cleaned** body (no boilerplate
+    blockquotes, no anchor markup, no translation footer) so the hierarchy
+    retriever doesn't get polluted by common terms like "文档" / "framework"
+    that appear in every WeChat-doc boilerplate.
     """
     nodes: dict[str, HierarchyNode] = {}
     root_id = "__root__"
@@ -92,6 +98,8 @@ def _build_hierarchy_nodes(parsed_docs: list[ParsedDocument]) -> list[HierarchyN
     for parsed in parsed_docs:
         parts = parsed.path.split("/")
         accumulated: list[str] = []
+        cleaned_body = cleaning.clean_markdown(parsed.body)
+        cleaned_title = cleaning.clean_title(parsed.title)
         for level, part in enumerate(parts, start=1):
             accumulated.append(part)
             node_path = "/".join(accumulated)
@@ -104,10 +112,10 @@ def _build_hierarchy_nodes(parsed_docs: list[ParsedDocument]) -> list[HierarchyN
                 id=node_path,
                 parent_id=parent_id,
                 node_type="doc" if is_doc else "module",
-                title=parsed.title if is_doc else part,
+                title=cleaned_title if is_doc else part,
                 path=node_path,
                 level=level,
-                summary=(parsed.body[:200].replace("\n", " ").strip() if is_doc else None),
+                summary=(cleaned_body[:200].replace("\n", " ").strip() if is_doc else None),
                 doc_id=f"{parsed.path}#0" if is_doc else None,
             )
             nodes[node_path] = node
@@ -147,9 +155,16 @@ def build_index(cfg: LoreWikiConfig, *, rebuild: bool = False) -> IndexerStats:
             log.warning("skip {}: {}", file_path, exc)
             stats.files_skipped += 1
             continue
+        # Clean the body before chunking so the FTS5 index and hierarchy
+        # summary are free of boilerplate ("相关文档:", "微信 Windows 版: 支持",
+        # "The translations are provided by WeChat Translation…", and the
+        # ``[​#​](#anchor)`` heading markup). The on-disk file is left
+        # untouched; we keep an untouched copy of the parsed doc for
+        # re-export (``lorewiki show``) use.
+        cleaned_body = cleaning.clean_markdown(parsed.body)
         chunks = chunk_markdown(
-            title=parsed.title,
-            body=parsed.body,
+            title=cleaning.clean_title(parsed.title),
+            body=cleaned_body,
             max_tokens=cfg.chunk_max_tokens,
             overlap_tokens=cfg.chunk_overlap_tokens,
             min_chars=cfg.chunk_min_chars,

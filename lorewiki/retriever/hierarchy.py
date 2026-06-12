@@ -28,6 +28,7 @@ from pathlib import Path
 from lorewiki.config import LoreWikiConfig
 from lorewiki.db import open_db
 from lorewiki.db.models import SearchHit
+from lorewiki.indexer import cleaning
 from lorewiki.retriever.base import BaseRetriever
 from lorewiki.utils.logger import get_logger
 
@@ -89,12 +90,23 @@ class HierarchyRetriever(BaseRetriever):
 
         scored: list[tuple[float, sqlite3.Row]] = []
         lowered_terms = [t.lower() for t in terms]
+        min_matches = min(2, len(lowered_terms))
         for row in rows:
             title_low = (row["title"] or "").lower()
             summary_low = (row["summary"] or "").lower()
-            title_hits = sum(1 for t in lowered_terms if t in title_low)
-            summary_hits = sum(1 for t in lowered_terms if t in summary_low)
-            if title_hits == 0 and summary_hits == 0:
+            matched_terms: set[str] = set()
+            title_hits = 0
+            summary_hits = 0
+            for t in lowered_terms:
+                in_title = t in title_low
+                in_summary = t in summary_low
+                if in_title:
+                    title_hits += 1
+                if in_summary:
+                    summary_hits += 1
+                if in_title or in_summary:
+                    matched_terms.add(t)
+            if len(matched_terms) < min_matches:
                 continue
             score = title_hits * 3.0 + summary_hits * 1.0 + 1.0 / (row["level"] + 1)
             scored.append((score, row))
@@ -155,10 +167,10 @@ class HierarchyRetriever(BaseRetriever):
                 SearchHit(
                     chunk_id=row["chunk_id"],
                     doc_path=row["doc_path"],
-                    title=row["title"],
-                    heading_path=row["heading_path"],
+                    title=cleaning.clean_title(row["title"]),
+                    heading_path=cleaning.clean_heading_path(row["heading_path"]),
                     module=row["module"],
-                    snippet=row["snippet"],
+                    snippet=cleaning.clean_snippet(row["snippet"]),
                     score=score,
                     retriever="hierarchy",
                     extra={"node": source_node},

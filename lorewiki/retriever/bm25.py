@@ -32,6 +32,7 @@ from pathlib import Path
 from lorewiki.config import LoreWikiConfig
 from lorewiki.db import open_db
 from lorewiki.db.models import SearchHit
+from lorewiki.indexer import cleaning
 from lorewiki.retriever.base import BaseRetriever
 from lorewiki.utils.logger import get_logger
 
@@ -122,10 +123,10 @@ class BM25Retriever(BaseRetriever):
                 SearchHit(
                     chunk_id=r["chunk_id"],
                     doc_path=r["doc_path"],
-                    title=r["title"],
-                    heading_path=r["heading_path"],
+                    title=cleaning.clean_title(r["title"]),
+                    heading_path=cleaning.clean_heading_path(r["heading_path"]),
                     module=r["module"],
-                    snippet=r["snippet"],
+                    snippet=cleaning.clean_snippet(r["snippet"]),
                     score=pseudo,
                     retriever="bm25.like",
                 )
@@ -155,6 +156,29 @@ class BM25Retriever(BaseRetriever):
         except sqlite3.OperationalError as exc:
             log.warning("fts5 query failed ({}): {}", exc, match_expr)
             return []
+
+    @staticmethod
+    def _row_to_hit(row: sqlite3.Row, *, source: str, boost: float = 1.0) -> SearchHit:
+        # ``sqlite3.Row.__contains__`` checks *values*, not column names, so
+        # we explicitly look at ``row.keys()`` here. ruff SIM118 wants
+        # ``"rank" in row``, but that would silently return False.
+        rank = row["rank"] if "rank" in row.keys() else 0.0  # noqa: SIM118
+        # FTS5 rank is a negative BM25-like score (more negative = better).
+        # We invert sign and multiply by ``boost`` (phrase pass > or pass).
+        # Scores are typically in the [0, ~10] range and NOT clamped to 1, so
+        # fusion algorithms see real magnitude differences. LIKE pass scores
+        # live in [0, 0.5] so they never outrank FTS hits.
+        score = -float(rank) * boost
+        return SearchHit(
+            chunk_id=row["chunk_id"],
+            doc_path=row["doc_path"],
+            title=cleaning.clean_title(row["title"]),
+            heading_path=cleaning.clean_heading_path(row["heading_path"]),
+            module=row["module"],
+            snippet=cleaning.clean_snippet(row["snippet"]),
+            score=score,
+            retriever=source,
+        )
 
     @staticmethod
     def _as_phrase(query: str) -> str:
@@ -189,29 +213,6 @@ class BM25Retriever(BaseRetriever):
                 seen.add(t)
                 out.append(t)
         return out
-
-    @staticmethod
-    def _row_to_hit(row: sqlite3.Row, *, source: str, boost: float = 1.0) -> SearchHit:
-        # ``sqlite3.Row.__contains__`` checks *values*, not column names, so
-        # we explicitly look at ``row.keys()`` here. ruff SIM118 wants
-        # ``"rank" in row``, but that would silently return False.
-        rank = row["rank"] if "rank" in row.keys() else 0.0  # noqa: SIM118
-        # FTS5 rank is a negative BM25-like score (more negative = better).
-        # We invert sign and multiply by ``boost`` (phrase pass > or pass).
-        # Scores are typically in the [0, ~10] range and NOT clamped to 1, so
-        # fusion algorithms see real magnitude differences. LIKE pass scores
-        # live in [0, 0.5] so they never outrank FTS hits.
-        score = -float(rank) * boost
-        return SearchHit(
-            chunk_id=row["chunk_id"],
-            doc_path=row["doc_path"],
-            title=row["title"],
-            heading_path=row["heading_path"],
-            module=row["module"],
-            snippet=row["snippet"],
-            score=score,
-            retriever=source,
-        )
 
     @staticmethod
     def _upsert(hits: dict[str, SearchHit], hit: SearchHit) -> None:

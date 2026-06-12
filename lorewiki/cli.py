@@ -29,6 +29,7 @@ from lorewiki.config import (
 )
 from lorewiki.db import get_meta, open_db
 from lorewiki.indexer import build_index
+from lorewiki.indexer import cleaning
 from lorewiki.llm import AnswerGenerator
 from lorewiki.retriever import (
     BaseRetriever,
@@ -629,6 +630,145 @@ def rest(
         )
     )
     serve(host=host, port=port, cfg=cfg)
+
+
+# ---------------------------------------------------------------------------
+# show / tree
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def show(
+    doc_path: Annotated[
+        str,
+        typer.Argument(..., help="Relative path inside the wiki, e.g. api/share/wx.showShareMenu.md"),
+    ],
+    path: Annotated[
+        str | None,
+        typer.Option("--path", "-p", help="Project / wiki path."),
+    ] = None,
+    raw: Annotated[
+        bool,
+        typer.Option("--raw", help="Print the on-disk .md verbatim (no cleaning)."),
+    ] = False,
+) -> None:
+    """Print a single document's body (cleaned by default)."""
+    cfg = _resolve_config(path)
+    if cfg.db_path is None or not cfg.db_path.exists():
+        console.print("[red]No index found. Run `lorewiki index` first.[/red]")
+        raise typer.Exit(code=2)
+    with open_db(cfg.db_path, auto_init=False) as conn:
+        row = conn.execute(
+            "SELECT doc_path, title, heading_path, module, content "
+            "FROM documents WHERE doc_path = ? ORDER BY chunk_index LIMIT 1",
+            (doc_path,),
+        ).fetchone()
+        if row is None:
+            console.print(f"[red]doc not found:[/red] {doc_path}")
+            raise typer.Exit(code=3)
+        # Re-read the body. If the user wants the on-disk .md (with scraper
+        # boilerplate), we go through the parser. Otherwise we render the
+        # cleaned body that was indexed.
+        if raw:
+            from lorewiki.indexer.parser import parse_markdown
+
+            abs_path = cfg.wiki_path / doc_path
+            if not abs_path.exists():
+                console.print(f"[red]file not found:[/red] {abs_path}")
+                raise typer.Exit(code=4)
+            try:
+                parsed = parse_markdown(abs_path, rel_to=cfg.wiki_path)
+            except (OSError, UnicodeDecodeError) as exc:
+                console.print(f"[red]read failed:[/red] {exc}")
+                raise typer.Exit(code=4) from exc
+            console.print(f"--- [dim]{doc_path}[/dim] ---")
+            console.print(parsed.body.rstrip())
+        else:
+            console.print(
+                f"# {cleaning.clean_title(row['title'])}\n"
+                f"\n"
+                f"[dim]doc:[/dim] {row['doc_path']}\n"
+                f"[dim]module:[/dim] {row['module']}\n"
+                f"[dim]heading:[/dim] {cleaning.clean_heading_path(row['heading_path'])}\n"
+            )
+            # The stored content has the [heading_path] breadcrumb prefix
+            # baked in for FTS recall. We strip it for display so users see
+            # the body as it would render in Obsidian.
+            body = cleaning.strip_breadcrumb_prefix(row["content"])
+            body = cleaning.strip_translation_footer(body)
+            console.print(body.rstrip())
+
+
+@app.command()
+def tree(
+    prefix: Annotated[
+        str | None,
+        typer.Argument(help="Limit the tree to a sub-path, e.g. 'api/share'."),
+    ] = None,
+    depth: Annotated[
+        int | None,
+        typer.Option("--depth", "-d", help="Limit depth (None = unlimited)."),
+    ] = None,
+    path: Annotated[
+        str | None,
+        typer.Option("--path", "-p", help="Project / wiki path."),
+    ] = None,
+) -> None:
+    """Print the wiki hierarchy as a tree."""
+    cfg = _resolve_config(path)
+    if cfg.db_path is None or not cfg.db_path.exists():
+        console.print("[red]No index found. Run `lorewiki index` first.[/red]")
+        raise typer.Exit(code=2)
+    with open_db(cfg.db_path, auto_init=False) as conn:
+        if prefix:
+            root = conn.execute(
+                "SELECT id, parent_id, title, level FROM hierarchy WHERE path = ?",
+                (prefix,),
+            ).fetchone()
+            if root is None:
+                console.print(f"[red]prefix not found:[/red] {prefix}")
+                raise typer.Exit(code=3)
+        else:
+            root = conn.execute(
+                "SELECT id, parent_id, title, level FROM hierarchy WHERE id = '__root__'"
+            ).fetchone()
+        # BFS to build tree.
+        all_nodes = conn.execute(
+            "SELECT id, parent_id, title, level, node_type, path FROM hierarchy"
+        ).fetchall()
+        children: dict[str | None, list[Any]] = {}
+        for n in all_nodes:
+            children.setdefault(n["parent_id"], []).append(n)
+        # The root may not actually be in the all_nodes result if the
+        # synthetic __root__ is the parent_id we use.
+        children.setdefault("__root__", [])
+
+        def _walk(node_id: str, current_depth: int, prefix_str: str, is_last: bool) -> None:
+            node = next((n for n in all_nodes if n["id"] == node_id), None) if node_id != "__root__" else None
+            if node is None and node_id == "__root__":
+                label = "[bold]LoreWiki[/bold]"
+            elif node is None:
+                return
+            else:
+                marker = "📄" if node["node_type"] == "doc" else "📁"
+                label = f"{marker} {cleaning.clean_title(node['title'])}"
+            if node_id != "__root__":
+                connector = "└── " if is_last else "├── "
+                console.print(f"{prefix_str}{connector}{label}")
+                new_prefix = prefix_str + ("    " if is_last else "│   ")
+            else:
+                console.print(label)
+                new_prefix = ""
+            if depth is not None and current_depth >= depth:
+                return
+            kids = sorted(
+                children.get(node_id, []),
+                key=lambda k: (k["node_type"] != "module", k["path"]),
+            )
+            for i, kid in enumerate(kids):
+                _walk(kid["id"], current_depth + 1, new_prefix, i == len(kids) - 1)
+
+        _walk("__root__", 0, "", True)
 
 
 # ---------------------------------------------------------------------------
