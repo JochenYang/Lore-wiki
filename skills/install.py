@@ -51,6 +51,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import os
+import re
 import shutil
 import sys
 from dataclasses import dataclass
@@ -146,6 +147,50 @@ def _parent_exists(path: Path) -> bool:
     ``C:\\``, which always exist, and would mark every tool as installed.
     """
     return path.parent.parent.exists()
+
+
+def _parse_choice(raw: str, max_n: int) -> list[int] | str | None:
+    """Parse the interactive ``install into which?`` answer.
+
+    Returns one of:
+
+    - ``list[int]``  — 1-based indices of the chosen tools, in ascending
+      order with duplicates removed.
+    - ``"all"``       — install every detected tool.
+    - ``"quit"``      — user wants to exit without installing.
+    - ``None``        — input is invalid; caller should error out.
+
+    Accepted syntax (case-insensitive, whitespace stripped):
+
+    - ``""`` / ``q`` / ``quit``        → ``"quit"``
+    - ``a`` / ``all``                  → ``"all"``
+    - ``3``                            → ``[3]``
+    - ``1,3,5`` or ``1 3 5``            → ``[1, 3, 5]``
+    - ``2-4``                          → ``[2, 3, 4]``
+    - ``1,3-5,6`` (mixed)              → ``[1, 3, 4, 5, 6]``
+
+    Out-of-range numbers (anything outside ``1..max_n``), empty
+    selections, malformed tokens, and reversed ranges all return
+    ``None``.
+    """
+    c = raw.strip().lower()
+    if c in ("", "q", "quit"):
+        return "quit"
+    if c in ("a", "all"):
+        return "all"
+    result: set[int] = set()
+    for token in re.split(r"[,\s]+", c):
+        if not token:
+            continue
+        m = re.fullmatch(r"(\d+)(?:-(\d+))?", token)
+        if m is None:
+            return None
+        start = int(m.group(1))
+        end = int(m.group(2)) if m.group(2) else start
+        if start < 1 or end < 1 or start > max_n or end > max_n or start > end:
+            return None
+        result.update(range(start, end + 1))
+    return sorted(result) if result else None
 
 
 def detect_installed_tools() -> list[Tool]:
@@ -557,18 +602,21 @@ def main(argv: list[str] | None = None) -> int:  # CLI dispatch table
             print(f"  {i}. {tool.label}  -> {tool.resolve(tool.primary)}")
         print("  a. all of the above")
         print("  q. quit")
-        choice = input("install into which? [1/a/q]: ").strip().lower()
-        if choice in ("q", ""):
+        choice = input(
+            "install into which? [a / 1 / 1,3,5 / 1 3 5 / 2-4 / q]: "
+        )
+        parsed = _parse_choice(choice, len(detected))
+        if parsed == "quit":
             return 0
-        if choice in ("a", "all"):
+        if parsed == "all":
             targets = detected
+        elif parsed is None:
+            print("invalid choice", file=sys.stderr)
+            return 2
         else:
-            try:
-                idx = int(choice) - 1
-                targets = [detected[idx]]
-            except (ValueError, IndexError):
-                print("invalid choice", file=sys.stderr)
-                return 2
+            # ``parsed`` is now narrowed to ``list[int]`` by the branches above.
+            assert isinstance(parsed, list)
+            targets = [detected[i - 1] for i in parsed]
 
     assert targets is not None
     print(f"source: {SOURCE_DIR}")

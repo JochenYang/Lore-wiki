@@ -544,3 +544,97 @@ def test_status_marks_tool_as_via_alias(
     assert "Gemini" in out and "Cursor" in out
     # At least one should carry the "via alias" suffix.
     assert "via alias" in out
+
+
+# ---------------------------------------------------------------------------
+# Interactive prompt: _parse_choice
+# ---------------------------------------------------------------------------
+
+
+class TestParseChoice:
+    """Cover every branch of the interactive ``install into which?`` parser.
+
+    ``_parse_choice`` is a pure function: no I/O, no ``$HOME``, no
+    fixtures. The matrix below documents the full grammar.
+    """
+
+    @pytest.mark.parametrize(
+        "raw",
+        ["", "  ", "q", "Q", "quit", "QUIT"],
+    )
+    def test_quit_forms(self, raw: str) -> None:
+        assert installer._parse_choice(raw, max_n=6) == "quit"
+
+    @pytest.mark.parametrize("raw", ["a", "A", "all", "ALL"])
+    def test_all_forms(self, raw: str) -> None:
+        assert installer._parse_choice(raw, max_n=6) == "all"
+
+    def test_single_digit(self) -> None:
+        assert installer._parse_choice("3", max_n=6) == [3]
+
+    def test_comma_separated(self) -> None:
+        assert installer._parse_choice("1,3,5", max_n=6) == [1, 3, 5]
+
+    def test_space_separated(self) -> None:
+        assert installer._parse_choice("1 3 5", max_n=6) == [1, 3, 5]
+
+    def test_mixed_separators(self) -> None:
+        # commas + spaces + tabs are all valid token separators.
+        assert installer._parse_choice(" 1 , 3\t5 ", max_n=6) == [1, 3, 5]
+
+    def test_range_token(self) -> None:
+        assert installer._parse_choice("2-4", max_n=6) == [2, 3, 4]
+
+    def test_single_element_range(self) -> None:
+        # ``3-3`` is a valid range that picks a single element.
+        assert installer._parse_choice("3-3", max_n=6) == [3]
+
+    def test_mixed_digits_and_ranges(self) -> None:
+        assert installer._parse_choice("1,3-5,6", max_n=6) == [1, 3, 4, 5, 6]
+
+    def test_duplicates_are_deduped(self) -> None:
+        # ``1,1,1`` and ``1-3,2`` should both collapse to a sorted, unique list.
+        assert installer._parse_choice("1,1,1", max_n=6) == [1]
+        assert installer._parse_choice("1-3,2", max_n=6) == [1, 2, 3]
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "7",          # single out-of-range
+            "1,7",        # one out-of-range in a list
+            "2-7",        # range extends past max
+            "0",          # below 1
+            "1,0,3",      # one below 1 in a list
+            "5-3",        # reversed range
+            "abc",        # letters
+            "1.5",        # float
+            "-1",         # negative
+            "1-",         # dangling dash
+            "1,,2",       # empty token between commas — must be ignored,
+                          # not rejected, so the overall answer is still valid
+        ],
+    )
+    def test_invalid_inputs_return_none(self, raw: str) -> None:
+        if raw in ("1,,2",):
+            # Empty token is silently skipped (treated as whitespace).
+            assert installer._parse_choice(raw, max_n=6) == [1, 2]
+        else:
+            assert installer._parse_choice(raw, max_n=6) is None
+
+    def test_respects_max_n_for_single_digit(self) -> None:
+        # ``max_n=3`` means only 1, 2, 3 are valid indices.
+        assert installer._parse_choice("3", max_n=3) == [3]
+        assert installer._parse_choice("4", max_n=3) is None
+
+    def test_respects_max_n_for_ranges(self) -> None:
+        assert installer._parse_choice("2-4", max_n=6) == [2, 3, 4]
+        assert installer._parse_choice("2-4", max_n=3) is None
+        assert installer._parse_choice("1-2", max_n=3) == [1, 2]
+
+    def test_max_n_one_only_accepts_one(self) -> None:
+        # Edge case: a 1-tool detection should still parse 1 / 1-1 and
+        # reject 2 / 1,2.
+        assert installer._parse_choice("1", max_n=1) == [1]
+        assert installer._parse_choice("1-1", max_n=1) == [1]
+        assert installer._parse_choice("2", max_n=1) is None
+        assert installer._parse_choice("1,1", max_n=1) == [1]
