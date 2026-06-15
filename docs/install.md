@@ -7,32 +7,38 @@
 >
 > - **Python user** (recommended, full feature set): `uv tool install lorewiki`
 > - **Node user** (familiar `npm install -g` flow, same CLI): `npm install -g lorewiki`
+>
+> This document is the deep-dive companion to the README's
+> [`## Installation`](../README.md#installation) section. Read the
+> README for the quickstart; come here for PATH troubleshooting,
+> where data lives, backups, common errors, and the publishing
+> workflow for maintainers.
 
 ## TL;DR
 
 ### Python (recommended)
 
 ```bash
-# Install (isolated, per-tool venv):
+# Install (isolated per-tool venv, lorewiki added to PATH):
 uv tool install lorewiki
 
-# Install with all optional features (FastAPI / MCP / vector):
-uv tool install 'lorewiki[all]'
+# Install with the optional vector-retrieval extra
+# (sqlite-vec + sentence-transformers):
+uv tool install 'lorewiki[vector]'
 
 # Upgrade:
 uv tool upgrade lorewiki
 
-# Uninstall:
+# Uninstall (does NOT touch ~/.lorewiki/ — your data is yours):
 uv tool uninstall lorewiki
 ```
 
 If you don't have `uv` yet:
 
 ```bash
-# Install uv once (any platform):
+# macOS / Linux:
 curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Or on Windows:
+# Windows (PowerShell):
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
@@ -72,37 +78,85 @@ behavior when no Python package manager is on `PATH`.
 
 ## Optional dependencies (extras)
 
-`lorewiki` keeps the **core** install tiny (wheel is ~70 KB and
+`lorewiki` keeps the **core** install tiny (wheel is ~80 KB and
 needs only `typer`, `rich`, `loguru`, `pydantic`, `httpx`, etc.).
 Optional features are behind extras:
 
-| Extra            | What it adds                                                  | When you need it                                                                                              |
-|------------------|--------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
-| `lorewiki[rest]`   | FastAPI + Uvicorn                                             | You want a REST API (`lorewiki rest`, OpenAPI at `/docs`)                                                    |
-| `lorewiki[mcp]`    | MCP stdio server                                              | You want Claude Desktop / Cursor / opencode to talk to lorewiki via the Model Context Protocol              |
-| `lorewiki[vector]` | sqlite-vec + sentence-transformers (note: vector retrieval not yet implemented — opt-in for future) | When phase-7 vector retrieval lands                                                                          |
+| Extra              | What it adds                                                          | When you need it                                                                                                       |
+|--------------------|-----------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
+| `lorewiki[vector]` | sqlite-vec + sentence-transformers                                    | You want vector retrieval. **Note**: vector retrieval is not yet implemented in the CLI; opt-in for a future release.  |
+| `lorewiki[dev]`    | pytest / pytest-cov / pytest-asyncio / ruff                           | You want to run the test suite locally                                                                                 |
+| `lorewiki[all]`    | Alias for `lorewiki[vector]`                                          | Kitchen-sink install (was `lorewiki[ui,rest,mcp,vector]` in 0.1.x; the first three were removed in 0.2.0)            |
 
-> **Note**: LoreWiki no longer ships a built-in web UI in 0.1.0.
-> The `[ui]` extra and the `lorewiki ui` subcommand are gone.
-> Consume the data via the REST API, the MCP server, or by opening
-> the active topic's vault directory in any Markdown editor
-> (Obsidian, VS Code, etc.).
-| `lorewiki[dev]`    | pytest / pytest-cov / pytest-asyncio / ruff                   | You want to run the test suite locally                                                                        |
-| `lorewiki[all]`    | `lorewiki[ui,rest,mcp,vector]`                                | Kitchen-sink install                                                                                          |
+> **Removed in 0.2.0**:
+> - `[rest]` (FastAPI + Uvicorn) — REST API surface was dropped
+> - `[mcp]` (MCP stdio server) — replaced by the opencode skill
+> - `[ui]` (Streamlit) — built-in web UI was dropped in 0.1.0
+>
+> The CLI + opencode skill is the only programmatic surface as of
+> 0.2.0. See the [README](../README.md) for the architecture diagram.
 
 ```bash
 # Single extra:
-uv tool install 'lorewiki[mcp]'
+uv tool install 'lorewiki[vector]'
 
 # Multiple extras (comma-separated):
-uv tool install 'lorewiki[ui,rest,mcp]'
+uv tool install 'lorewiki[vector,dev]'   # unusual combo, but legal
 
 # Everything:
 uv tool install 'lorewiki[all]'
 ```
 
-After `uv tool install 'lorewiki[rest]'`, the `lorewiki rest`
-subcommand becomes available.
+After `uv tool install 'lorewiki[vector]'`, the `sqlite-vec` and
+`sentence-transformers` packages are available; the vector retriever
+itself lands in a future release.
+
+## Verifying the install (from PyPI)
+
+After installing from PyPI, the *gold standard* check is **proving
+the wheel on your disk is byte-identical to what PyPI served**.
+This catches "I'm sure I upgraded" mistakes that the `lorewiki
+--version` banner cannot.
+
+```powershell
+# 1. Confirm the version banner:
+lorewiki --version
+# expect: banner ending with "v0.2.x"
+
+# 2. Confirm the install was from a registry, not local:
+#    A PyPI-installed wheel has NO direct_url.json in its dist-info.
+#    An editable / local install DOES.
+Get-ChildItem `
+  "$env:USERPROFILE\AppData\Roaming\uv\tools\lorewiki\Lib\site-packages" `
+  -Filter "direct_url.json" -Recurse -ErrorAction SilentlyContinue
+# expect: empty (no matches)
+
+# 3. Compare the wheel's SHA256 to PyPI's published hash:
+$distInfo = Get-ChildItem `
+  "$env:USERPROFILE\AppData\Roaming\uv\tools\lorewiki\Lib\site-packages" `
+  -Directory -Filter "lorewiki-*.dist-info" | Select-Object -First 1
+$record = Join-Path $distInfo.FullName "RECORD"
+(Get-FileHash $record -Algorithm SHA256).Hash
+# Then cross-check against PyPI's official hash for the same wheel:
+#   https://pypi.org/pypi/lorewiki/json
+# (look in `urls[].digests.sha256` for the wheel you installed).
+```
+
+```bash
+# macOS / Linux equivalent:
+lorewiki --version
+ls -la ~/.local/share/uv/tools/lorewiki/lib/python*/site-packages/ | grep direct_url.json
+# expect: no such file
+shasum -a 256 ~/.local/share/uv/tools/lorewiki/lib/python*/site-packages/lorewiki-*.dist-info/RECORD
+# cross-check at https://pypi.org/pypi/lorewiki/json
+```
+
+A quick smoke test:
+
+```bash
+lorewiki topic list
+# expect: a table with your existing topics, or "No topics yet." if fresh
+```
 
 ## Where does the data live?
 
@@ -136,56 +190,54 @@ To back up before uninstalling:
 tar czf lorewiki-backup-$(date +%Y%m%d).tar.gz ~/.lorewiki
 ```
 
-## Verifying the install
-
-```bash
-lorewiki --version
-# expect: LoreWiki 0.1.0
-
-lorewiki --help
-# expect: full help text with the 7 root subcommands
-
-# Quick smoke test
-lorewiki topic list
-# expect: 'No topics yet.' panel + a hint to run `lorewiki topic create`
-```
-
 ## Common install errors
 
-| Symptom                                          | Cause                                                                                          | Fix                                                                                                                       |
-|--------------------------------------------------|------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
-| `command not found: lorewiki`                   | `uv tool` install finished but `~/.local/bin` (or `%USERPROFILE%\.local\bin`) isn't on PATH | `uv tool install` prints a hint at the end; re-source the shell or add the directory to PATH                                |
-| `ModuleNotFoundError: streamlit` running `lorewiki --web` | You installed `lorewiki` after a release that still had a Streamlit UI | LoreWiki dropped the built-in web UI in 0.1.0. The `--web` flag is now a no-op that prints a migration hint. Use the REST API, the MCP server, or your Markdown editor instead. |
-| `Wheel ... located at ... does not appear to be valid` (`twine check`) | Malformed `pyproject.toml` after edits                                                       | Re-run `python -m build` from a clean tree; if it persists, paste the full error into a GitHub issue                   |
-| `403 Forbidden` uploading to PyPI                  | Wrong API token (or expired)                                                                  | Generate a per-project token at <https://pypi.org/manage/account/token/>; the username **must** be `__token__`          |
+| Symptom                                                | Cause                                                                                          | Fix                                                                                                                       |
+|--------------------------------------------------------|------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| `command not found: lorewiki`                          | `uv tool` install finished but `~/.local/bin` (or `%USERPROFILE%\.local\bin`) isn't on PATH   | `uv tool install` prints a hint at the end; re-source the shell or add the directory to PATH                                |
+| `lorewiki add` crashes with `UnicodeEncodeError: surrogates not allowed` | You are on 0.2.1 (or earlier) and piping a CJK body into PowerShell | **Fixed in 0.2.2.** Upgrade with `uv tool upgrade lorewiki`. If you cannot upgrade, pass the body via `--body` or `--file` instead of stdin |
+| `lorewiki add` leaves a 0-byte file on disk            | Same root cause as the row above; 0.2.1 swallowed the UnicodeEncodeError silently             | **Fixed in 0.2.2.** Upgrade, then delete the empty file (or re-run with `--force`)                                          |
+| CJK characters show as `?` in `lorewiki search` output | You're on a release older than 0.2.0                                                          | Upgrade to 0.2.0+, which forces UTF-8 stdout/stderr unconditionally. Or prefix the command with `chcp 65001 |` (Windows) |
+| `lorewiki.exe` version shows the old number after `uv tool upgrade` | The new binary is on PATH but the current PowerShell session cached the old one | Open a fresh PowerShell window, or `refreshenv` / `Remove-Item Env:Path*` (less reliable)                                     |
+| `Wheel ... does not appear to be valid` (`twine check`) | Malformed `pyproject.toml` after edits                                                       | Re-run `python -m build` from a clean tree; if it persists, paste the full error into a GitHub issue                       |
 
 ## Publishing (maintainers only)
 
 End users **do not** need this section. If you maintain lorewiki and
-want to push a new release, see:
+want to push a new release:
 
-- `scripts/publish.sh` (macOS / Linux)
-- `scripts/publish.ps1` (Windows PowerShell)
-
-Both scripts:
-
-1. Run `pytest -q` and `ruff check` (skip with `--skip-tests`).
-2. Build wheel + sdist (skip with `--skip-build`).
-3. Run `twine check` to validate the metadata.
-4. Upload to **TestPyPI first** (always — safety net).
-5. Verify the install in a clean throwaway venv.
-6. Wait 5 s; then upload to **live PyPI**.
-7. Then `npm publish` (the same release version, so the npm
-   postinstall hook can find the matching wheel on PyPI).
-
-To do a TestPyPI-only run (no live push), pass `--test` /
-`-Test`. For npm, run `npm login` once on the machine (or set
-`$NPM_TOKEN` to an automation token) before invoking the script.
-
-If `npm` is not on `PATH` (e.g. on a server-only CI box), the
-script logs a clear warning and exits 0 — the PyPI release is
-still considered complete, and the npm step can be run later
-from a developer machine with Node installed.
+1. **Bump the version** in all three places (they must match):
+   - `pyproject.toml` → `version = "X.Y.Z"`
+   - `package.json` → `"version": "X.Y.Z"`
+   - `lorewiki/__init__.py` → `__version__ = "X.Y.Z"`
+   - `CHANGELOG.md` → add a top-level `## [X.Y.Z] — YYYY-MM-DD` entry
+2. **Verify locally**:
+   ```bash
+   ruff check lorewiki skills tests
+   pytest -q
+   python -m build              # wheel + sdist into dist/
+   twine check dist/*
+   ```
+3. **Commit + tag + push**:
+   ```bash
+   git add -A
+   git commit -m "build: bump version to X.Y.Z"
+   git push origin main
+   git tag -a vX.Y.Z -m "Release X.Y.Z: <one-line summary>"
+   git push origin vX.Y.Z
+   ```
+4. **CI handles the rest**: the `Publish to PyPI` workflow is
+   triggered by the tag push. It re-runs the tests + lint, builds
+   the wheel/sdist, and uploads to **PyPI via Trusted Publishing
+   (OIDC)** — no API token needed. PyPI's `pypi` environment
+   constraint (configured in the PyPI control panel) ensures only
+   the GitHub Actions run from the `pypi` environment can exchange
+   an OIDC token for an upload token.
+5. **(Optional) npm**: if `NPM_TOKEN` is configured as a GitHub
+   secret, the workflow also publishes the npm shim. Without it,
+   the npm step is skipped with a warning; the PyPI release is
+   still complete and the npm version can be published later from
+   a developer machine.
 
 ## Versioning
 
@@ -194,17 +246,11 @@ LoreWiki follows [Semantic Versioning](https://semver.org/) —
 
 - `MAJOR` — incompatible API changes (e.g. `lorewiki config` shape changes)
 - `MINOR` — backward-compatible new features (e.g. a new subcommand)
-- `PATCH` — backward-compatible bug fixes
-
-Bumping the version: edit `version` in **both** `pyproject.toml`
-and `package.json` (they must match — the npm postinstall calls
-`uv tool install lorewiki==<version>` with the npm package
-version). Then run `scripts/publish.sh`, push the resulting git
-tag (`git tag v0.1.1 && git push --tags`).
+- `PATCH` — backward-compatible bug fixes (e.g. 0.2.2's surrogate fix)
 
 ## Channels (future)
 
 We may publish a `lorewiki-canary` channel on TestPyPI for
 preview releases; today, **all** releases go to **stable** on PyPI
 and `latest` on npm. Nightly / canary builds are out of scope
-for v0.1.x.
+for v0.2.x.

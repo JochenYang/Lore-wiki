@@ -61,50 +61,126 @@ it directly.
 
 ## Installation
 
-```bash
-# Editable install (recommended for active development)
-uv tool install --editable .
+LoreWiki ships as a Python wheel on **PyPI** (canonical) with an
+**npm shim** that proxies to the same wheel. Pick one:
 
-# Or plain pip
-pip install -e .                 # core CLI
-pip install -e ".[dev]"          # add pytest / ruff / coverage
-pip install -e ".[vector]"       # opt-in: vector retrieval (sqlite-vec)
+### Python (recommended, full feature set)
+
+```bash
+# Install — isolated per-tool venv, the lorewiki.exe (Windows)
+# or lorewiki binary (macOS/Linux) is added to your PATH.
+uv tool install lorewiki
+
+# With the optional vector-retrieval extra (sqlite-vec + sentence-transformers):
+uv tool install 'lorewiki[vector]'
+
+# Upgrade:
+uv tool upgrade lorewiki
+
+# Uninstall (does NOT touch ~/.lorewiki/ — your data is yours):
+uv tool uninstall lorewiki
 ```
 
-Python **3.10+** required. After install, `lorewiki --version`
-should print `LoreWiki 0.1.0`.
+If you don't have `uv` yet:
 
-> Windows PowerShell users: if CJK characters show as `?` in
-> `lorewiki search --raw` output, prefix the command with
-> `chcp 65001 |` to force the shell code page to UTF-8, or upgrade
-> to v0.1.1+ which forces UTF-8 stdout automatically.
+```bash
+# macOS / Linux:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Windows (PowerShell):
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Plain `pip` works too (the `lorewiki.exe` entry point is the same):
+
+```bash
+pip install lorewiki              # core CLI
+pip install 'lorewiki[vector]'    # opt-in: vector retrieval
+```
+
+> The `[rest]` and `[mcp]` extras from 0.1.x are gone as of 0.2.0.
+> The CLI + opencode skill replaced the FastAPI / MCP server surface.
+> The `[all]` extra is now an alias for `[vector]`.
+
+### Node (npm shim, identical CLI)
+
+```bash
+npm install -g lorewiki           # postinstall calls `uv tool install lorewiki`
+npm install -g lorewiki@latest    # upgrade
+npm uninstall -g lorewiki         # also runs `uv tool uninstall lorewiki`
+```
+
+The npm package is a thin shim — it spawns the Python `lorewiki` that
+the postinstall hook installed. See [`README.npm.md`](README.npm.md)
+for the full story.
+
+### From source (for contributors)
+
+```bash
+git clone https://github.com/JochenYang/Lore-wiki
+cd Lore-wiki
+uv tool install --editable .              # dev install
+uv tool install --editable '.[dev]'       # + pytest / ruff / coverage
+```
+
+Python **3.10+** is required. After install, `lorewiki --version`
+should print a banner ending with `v0.2.x`.
+
+> **Windows PowerShell + CJK note**: starting with 0.2.0, LoreWiki
+> forces UTF-8 on stdout/stderr unconditionally — CJK characters
+> round-trip cleanly through the shell without `chcp 65001`. If you
+> hit garbled output on an older release, upgrade with
+> `uv tool upgrade lorewiki` or prefix the command with
+> `chcp 65001 |`.
+
+For deeper install info (PATH troubleshooting, where data lives,
+backups, common errors, how publishing works), see
+[`docs/install.md`](docs/install.md).
 
 ## Quickstart
 
 ```bash
-# 1. Create a wiki + config
+# 1. Create a wiki + sample Markdown
 lorewiki init --path ./my-wiki
 
-# 2. Author Markdown under ./my-wiki/, then index it
+# 2. Index the Markdown into SQLite + FTS5 (one-time, then incremental)
 lorewiki index --path ./my-wiki
 
-# 3. Search
+# 3. Search (default output is structured JSON for agents; --human for Rich Table)
 lorewiki search "用户登录接口" --path ./my-wiki --mode mix --top-k 5
+lorewiki search "用户登录接口" --path ./my-wiki --mode mix --top-k 5 --human
 
 # 4. Ask (LLM-assisted answer, gracefully falls back to top chunks)
 lorewiki ask "如何实现幂等重试" --path ./my-wiki
 
-# 5. Or author a note from the CLI (writes + re-indexes in one go)
-echo "Some deep details about Python design pattern." \
-  | lorewiki add --title "Python Design" --module "patterns" --tag python,design
+# 5. Author a note from the CLI (writes + re-indexes in one go)
+#    Three equivalent ways to provide the body:
+lorewiki add --title "Python Design" --module "patterns" --tag python,design \
+    --body "Some deep details about Python design patterns." \
+    --path ./my-wiki
 
-# 6. Browse the index status
+#    --file: read the body from a file
+lorewiki add --title "From File" --module "patterns" \
+    --file ./drafts/python-design.md --path ./my-wiki
+
+#    stdin pipe (any of these is fine on Windows + PowerShell, even
+#    with CJK content; 0.2.2+ scrubs UTF-16 surrogates automatically)
+echo "Some deep details about Python design patterns." \
+  | lorewiki add --title "From Pipe" --module "patterns" --path ./my-wiki
+
+# 6. Browse the index / hierarchy / status
 lorewiki status --path ./my-wiki
+lorewiki tree   --path ./my-wiki      # Rich-Tree view of the hierarchy
+lorewiki show   index.md --path ./my-wiki   # print a doc body (cleaned)
 ```
 
-The default config lives in `<wiki>/.lorewiki/config.toml`; user-wide
-overrides live in `~/.lorewiki/config.toml`; env vars `LOREWIKI_*` override
-both.
+**Config resolution** (later wins):
+
+1. `<wiki>/.lorewiki/config.toml` — per-wiki defaults
+2. `~/.lorewiki/config.toml` — user-wide overrides
+3. `LOREWIKI_*` env vars — shell-level overrides
+
+Edit any of these with `lorewiki config list / get / set` (TOML-aware,
+no hand-editing required).
 
 ## Topics — your second brain
 
@@ -292,7 +368,7 @@ See `docs/lorewiki dev document.md` for the full design plan and
 ```bash
 pip install -e ".[dev]"
 ruff check lorewiki skills tests  # lint
-pytest -q                        # 240 unit + integration tests
+pytest -q                        # 241 unit + integration tests
 pytest --cov=lorewiki            # coverage report
 ```
 

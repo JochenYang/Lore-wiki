@@ -45,39 +45,114 @@ LoreWiki 把团队的 Markdown 文档索引到本地 SQLite，并通过 CLI、RE
 
 ## 安装
 
+LoreWiki 主推 **PyPI Python wheel**(权威源),同时发布一个 **npm shim** 走同一个 wheel。任选其一:
+
+### Python(推荐,功能最全)
+
 ```bash
-# 核心：CLI + REST + MCP
-pip install -e .
+# 安装——自动建独立 venv,lorewiki.exe(Windows)或 lorewiki(macOS/Linux)加入 PATH
+uv tool install lorewiki
 
-# 开发依赖（pytest / ruff / coverage）
-pip install -e ".[dev]"
+# 装上向量检索可选依赖(sqlite-vec + sentence-transformers)
+uv tool install 'lorewiki[vector]'
 
-# 全套（已不再包含 [ui] extra；0.1.0 砍掉了 Streamlit Web UI）
-pip install -e ".[all]"
+# 升级
+uv tool upgrade lorewiki
+
+# 卸载(不会动 ~/.lorewiki/,数据是你的)
+uv tool uninstall lorewiki
 ```
 
-需要 **Python 3.10+**。
-
-## 快速上手（5 分钟）
+没有 `uv` 的话:
 
 ```bash
-# 1. 创建一个新 wiki + 默认配置
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Windows(PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+普通 `pip` 也行(产出的 `lorewiki.exe` 入口相同):
+
+```bash
+pip install lorewiki              # 核心 CLI
+pip install 'lorewiki[vector]'    # 可选:向量检索
+```
+
+> 0.2.0 砍掉了 0.1.x 的 `[rest]` 和 `[mcp]` extras——FastAPI/MCP 服务面已由
+> CLI + opencode skill 取代。`[all]` 现在等价于 `[vector]`。
+
+### Node(npm shim,CLI 行为完全一致)
+
+```bash
+npm install -g lorewiki           # postinstall 钩子会调 `uv tool install lorewiki`
+npm install -g lorewiki@latest    # 升级
+npm uninstall -g lorewiki         # 同时调 `uv tool uninstall lorewiki`
+```
+
+npm 包只是 shim,真正干活的是 postinstall 装好的 Python `lorewiki`。详见 [`README.npm.md`](../README.npm.md)。
+
+### 从源码(给贡献者)
+
+```bash
+git clone https://github.com/JochenYang/Lore-wiki
+cd Lore-wiki
+uv tool install --editable .              # dev 模式
+uv tool install --editable '.[dev]'       # + pytest / ruff / coverage
+```
+
+需要 **Python 3.10+**。装完后 `lorewiki --version` 会输出一个 banner,末尾带 `v0.2.x`。
+
+> **Windows PowerShell + CJK 提醒**:从 0.2.0 开始 LoreWiki 强制 stdout/stderr
+> 为 UTF-8,CJK 字符在 PowerShell 管道里直接能过,不需要 `chcp 65001`。
+> 如果老版本看到乱码,跑 `uv tool upgrade lorewiki` 或者临时加 `chcp 65001 |` 前缀。
+
+更深的安装细节(PATH 排错、数据位置、备份、常见错误、发布流程)见 [`docs/install.md`](install.md)。
+
+## 快速上手(5 分钟)
+
+```bash
+# 1. 创建一个新 wiki + 样例 Markdown
 lorewiki init --path ./my-wiki
 
-# 2. 用你喜欢的编辑器在 ./my-wiki 下写 Markdown，然后建索引
+# 2. 把 Markdown 索引进 SQLite + FTS5(一次性,之后增量)
 lorewiki index --path ./my-wiki
 
-# 3. 检索（中文示例）
+# 3. 检索(默认输出 JSON 喂 agent,加 --human 看 Rich 表格)
 lorewiki search "用户登录接口" --path ./my-wiki --mode mix --top-k 5
+lorewiki search "用户登录接口" --path ./my-wiki --mode mix --top-k 5 --human
 
-# 4. 智能问答（未装 LLM 时会自动降级为返回 top-K 片段 + 提示）
+# 4. 智能问答(未装 LLM 时自动降级为返回 top-K 片段 + 提示)
 lorewiki ask "如何实现幂等重试" --path ./my-wiki
 
-# 5. 查看索引状态
+# 5. 从 CLI 写一条笔记(写文件 + 增量索引 一气呵成)
+#    body 三种来源,任选其一:
+lorewiki add --title "幂等设计" --module "patterns" --tag retry,idempotency \
+    --body "幂等设计 (Idempotency-Key 模式) 用于防止重复扣款与重试导致的双写。" \
+    --path ./my-wiki
+
+#    --file: 从文件读 body
+lorewiki add --title "从文件来" --module "patterns" \
+    --file ./drafts/python-design.md --path ./my-wiki
+
+#    stdin pipe(Windows + PowerShell 也能用,即使带 CJK;
+#    0.2.2+ 会自动清洗 UTF-16 surrogate)
+echo "幂等设计 (Idempotency-Key 模式) 用于防止重复扣款。" \
+  | lorewiki add --title "从管道来" --module "patterns" --path ./my-wiki
+
+# 6. 状态/层级/正文浏览
 lorewiki status --path ./my-wiki
+lorewiki tree   --path ./my-wiki      # Rich-Tree 视图看层级
+lorewiki show   index.md --path ./my-wiki   # 打印一个文档(已清洗)
 ```
 
-配置文件默认位置 `<wiki>/.lorewiki/config.toml`；可用 `~/.lorewiki/config.toml` 做用户级覆盖；环境变量 `LOREWIKI_*` 优先级最高。
+**配置优先级**(后写者赢):
+
+1. `<wiki>/.lorewiki/config.toml` — 单个 wiki 的默认配置
+2. `~/.lorewiki/config.toml` — 用户级覆盖
+3. `LOREWIKI_*` 环境变量 — shell 级覆盖
+
+任何一层都能用 `lorewiki config list / get / set` 改(TOML 感知,不需要手改文件)。
 
 ## 主题（Topic）— 你的「共享大脑」
 
