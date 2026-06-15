@@ -76,5 +76,5 @@ Azure OpenAI:
 
 Other gaps (see docs/production-readiness.md):
     - Vector retrieval  (planned, not yet implemented)
-    - lorewiki update --watch  (file-watcher placeholder)
+    - lorewiki index --watch  (one-shot in 0.3.0; real watcher in 0.4.0)
     - /ask/stream SSE  (no streaming yet)

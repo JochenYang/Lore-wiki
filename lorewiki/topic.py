@@ -73,7 +73,7 @@ _TOPIC_NAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
 # Reserved names that collide with CLI subcommands or shell semantics.
 _RESERVED_NAMES = frozenset({
     "init", "index", "search", "ask", "status", "config", "rest",
-    "ui", "mcp", "update", "topic", "current", "all", "help",
+    "ui", "mcp", "topic", "current", "all", "help",
     "con", "prn", "aux", "nul",  # Windows reserved device names
 })
 

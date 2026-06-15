@@ -216,9 +216,9 @@ CREATE VIRTUAL TABLE vectors USING vec0(
 lorewiki init [--path PATH]               # 创建配置文件和示例文档
 
 # 索引管理
-lorewiki index [--path PATH] [--rebuild]  # 索引指定目录（默认当前配置路径）
-lorewiki status                           # 显示索引统计（文档数、最后索引时间）
-lorewiki update [--watch]                 # 增量索引（可监听文件变化）
+lorewiki index [--path PATH] [--rebuild] [--watch]  # 索引指定目录（--watch 0.3.0 实验性）
+lorewiki status                                       # 显示索引统计（文档数、最后索引时间）
+# lorewiki update 已于 0.3.0 移除，--watch 搬到 lorewiki index
 
 # 检索与问答
 lorewiki search QUERY [--top-k 5] [--mode mix]   # mix | bm25 | hierarchy | vector

@@ -390,7 +390,7 @@ python scripts/recall_phase2.py  # BM25 vs Hierarchy vs Mix 三模式对比
 - **向量检索**（sqlite-vec + sentence-transformers）— 可选启用
 - **异步 LLM 客户端** — 让 REST `/ask` 支持并发
 - **流式 `/ask` 端点**（SSE）— 长答案实时展示
-- **增量文件监听**（`lorewiki update --watch`）
+- **增量文件监听**（`lorewiki index --watch`，0.3.0 实验性）
 - **PDF / Word 文档导入**（当前仅 Markdown）
 
 ## 贡献

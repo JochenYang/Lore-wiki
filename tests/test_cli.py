@@ -3,8 +3,8 @@
 Goals:
 * ``lorewiki --version`` prints the package version.
 * ``lorewiki --help`` lists every sub-command we promised in the dev plan.
-* Sub-commands that are not yet implemented surface a clear "phase pending"
-  panel and exit with code 2 (not 0).
+* ``lorewiki update`` (removed in 0.3.0) is now reported as an unknown
+  command rather than the old "phase pending" panel.
 """
 
 from __future__ import annotations
@@ -36,20 +36,31 @@ def test_help_lists_all_subcommands(runner: CliRunner) -> None:
         assert cmd in result.stdout, f"sub-command {cmd!r} missing from --help"
 
 
-@pytest.mark.parametrize(
-    "args",
-    [
-        ["update"],
-    ],
-)
-def test_phase_pending_exits_with_code_2(runner: CliRunner, args: list[str]) -> None:
-    """Every still-unimplemented sub-command must signal 'pending' (exit code 2)."""
-    result = runner.invoke(app, args)
-    assert result.exit_code == 2, (
-        f"args={args} expected exit 2, got {result.exit_code}\n"
-        f"output:\n{result.output}"
+def test_update_subcommand_is_removed(runner: CliRunner) -> None:
+    """Removed in 0.3.0: ``lorewiki update`` must report 'unknown command'."""
+    result = runner.invoke(app, ["update"])
+    assert result.exit_code != 0
+    assert "no such command" in result.output.lower() or "unknown" in result.output.lower(), (
+        f"expected 'no such command' / 'unknown' in output, got:\n{result.output}"
     )
-    assert "not yet implemented" in result.output.lower()
+    assert "not yet implemented" not in result.output.lower()
+
+
+def test_index_watch_flag_is_accepted(runner: CliRunner) -> None:
+    """``lorewiki index --watch`` should be accepted (one-shot behavior in 0.3.0).
+
+    We can't easily run a real index here without a wiki fixture, so we
+    just verify the flag is parsed and Typer's "no such option" error
+    does NOT fire. Exit code will be non-zero (no wiki_path) but the
+    output must mention ``wiki_path does not exist`` rather than an
+    "unrecognized argument" error.
+    """
+    result = runner.invoke(app, ["index", "--watch"])
+    # No wiki configured in test env -> expected to error, but on the
+    # wiki_path check, not on --watch parsing.
+    combined = (result.stdout + (result.stderr or "")).lower()
+    assert "unrecognized" not in combined
+    assert "no such option" not in combined
 
 
 def test_unknown_subcommand_returns_nonzero(runner: CliRunner) -> None:

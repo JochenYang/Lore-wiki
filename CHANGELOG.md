@@ -10,6 +10,44 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-06-15
+
+Minor release. Removes the long-standing ``update`` subcommand stub
+(0.2.0–0.2.9 reserved it for a future watcher) and rolls the
+``--watch`` flag forward onto ``index``, which the indexer already
+supports incrementally. Also adds a defensive warning when a
+project-level ``wiki_path`` points to a non-existent directory —
+a silent failure mode that bit at least one user after an
+``init --path <tmp>`` test.
+
+The version bump (0.2.9 → 0.3.0, not 0.2.10) follows the project's
+"patch > 9 ⇒ bump minor" convention to keep version numbers
+visually searchable.
+
+### Removed
+- ``lorewiki update`` (was a phase-6 stub since 0.2.0). Use
+  ``lorewiki index`` (incremental by default) for one-shot
+  re-indexing; ``lorewiki index --watch`` is the new home for the
+  watcher flag and behaves like one-shot in 0.3.0 with a real
+  file-watcher loop landing in 0.4.0.
+- ``lorewiki.cli.helpers.phase_pending`` and its test parametrize
+  case. No subcommand returns the "not yet implemented" panel any
+  more.
+
+### Added
+- ``lorewiki index --watch`` / ``-w`` flag (one-shot behaviour in
+  0.3.0; logs a warning that the real file-watcher is phase 6).
+- ``lorewiki.config.load_config``: when ``<project>/.lorewiki/config.toml``
+  contains a ``wiki_path`` that does not exist on disk, log a
+  warning naming the stale path and the offending file, and drop
+  the value from the merge so the topic-derived path wins.
+
+### Changed
+- ``lorewiki/topic.py``: ``"update"`` removed from
+  ``_RESERVED_NAMES`` (the subcommand no longer exists, so the name
+  is free for a user topic again).
+- ``lorewiki/cli/helpers.py``: ``phase_pending`` removed.
+
 ## [0.2.9] — 2026-06-15
 
 Bug-fix release. 0.2.8 closed the CJK / cross-platform story for

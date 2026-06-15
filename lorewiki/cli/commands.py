@@ -22,7 +22,6 @@ from rich.table import Table
 from lorewiki.cli.apps import app, console, log
 from lorewiki.cli.helpers import (
     human_bytes,
-    phase_pending,
     resolve_config,
 )
 from lorewiki.config import LoreWikiConfig, save_config
@@ -125,6 +124,18 @@ def index(
         bool,
         typer.Option("--rebuild", help="Drop and rebuild the index from scratch."),
     ] = False,
+    watch: Annotated[
+        bool,
+        typer.Option(
+            "--watch",
+            "-w",
+            help=(
+                "Watch the wiki path and re-index on file changes. "
+                "Experimental in 0.3.0: for now behaves like a one-shot index. "
+                "A real file-watcher loop ships in 0.4.0 (phase 6)."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Build or rebuild the SQLite + FTS5 index for a wiki directory.
 
@@ -141,6 +152,12 @@ def index(
             f"Run [cyan]lorewiki init --path {cfg.wiki_path}[/cyan] first."
         )
         raise typer.Exit(code=1)
+
+    if watch:
+        log.warning(
+            "--watch is experimental in 0.3.0: running one-shot index. "
+            "Phase 6 (0.4.0) will add a real file-watcher loop."
+        )
 
     stats = build_index(cfg, rebuild=rebuild)
     table = Table(title="Index complete", show_header=False, box=None)
@@ -297,28 +314,6 @@ def search(
         console.print(head)
         console.print(Markdown((h.snippet or "").replace("<<", "**").replace(">>", "**")))
         console.print()
-
-
-# ---------------------------------------------------------------------------
-# update (placeholder, phase 6)
-# ---------------------------------------------------------------------------
-
-
-@app.command()
-def update(
-    watch: Annotated[
-        bool,
-        typer.Option("--watch", help="Watch for file changes and re-index incrementally."),
-    ] = False,
-) -> None:
-    """Re-index only files that changed since the last index run.
-
-    Today ``update`` is functionally equivalent to ``index`` — the
-    indexer is already incremental. The split is kept so a future
-    watcher (phase 6) can plug into the same surface without a
-    breaking change.
-    """
-    phase_pending("update", "phase 6 (incremental enhancements)")
 
 
 # ---------------------------------------------------------------------------
@@ -671,5 +666,4 @@ __all__ = [
     "show",
     "status",
     "tree",
-    "update",
 ]

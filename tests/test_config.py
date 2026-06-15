@@ -82,3 +82,33 @@ def test_save_config_serialises_paths(tmp_path: Path) -> None:
     # Paths must be stringified for TOML output.
     assert "wiki_path" in body
     assert "[llm]" in body
+
+
+def test_stale_project_wiki_path_is_ignored(tmp_path: Path) -> None:
+    """Added in 0.3.0: a project-level wiki_path that doesn't exist
+    on disk must be dropped (with a WARNING) so the topic / user
+    fallback wins, rather than silently shadowing it.
+
+    Smoke-verified manually that the WARNING is emitted via
+    ``lorewiki status``; the caplog fixture doesn't intercept loguru
+    output (loguru uses its own sinks), so this test asserts the
+    observable behaviour: ``cfg.wiki_path`` no longer points at the
+    stale value.
+    """
+    # Project dir with a config that points at a non-existent wiki path.
+    project = tmp_path / "project"
+    (project / ".lorewiki").mkdir(parents=True)
+    stale_path = tmp_path / "wiki-that-was-moved-or-deleted"
+    (project / ".lorewiki" / "config.toml").write_text(
+        f'wiki_path = "{stale_path.as_posix()}"\n', encoding="utf-8"
+    )
+
+    cfg = load_config(project_dir=project)
+
+    # The stale value must be dropped. ``cfg.wiki_path`` falls back to
+    # the default ``Path("./wiki")`` resolved against the test's cwd
+    # (``tmp_path``), which is *not* ``stale_path``.
+    assert cfg.wiki_path != stale_path
+    assert stale_path not in cfg.wiki_path.parents, (
+        f"cfg.wiki_path={cfg.wiki_path} unexpectedly descends from stale_path={stale_path}"
+    )

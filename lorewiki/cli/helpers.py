@@ -13,8 +13,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import typer
-from rich.panel import Panel
 from rich.table import Table
 
 # Re-export the apps module's console so command files don't need to
@@ -59,18 +57,6 @@ def human_bytes(num: int) -> str:
             return f"{size:.1f} {unit}"
         size /= 1024
     return f"{num} B"
-
-
-def phase_pending(command: str, phase: str) -> None:
-    """Print a clear 'not yet implemented' panel and exit with code 2."""
-    panel = Panel(
-        f"[yellow]Command [bold]'{command}'[/bold] is not yet implemented.[/yellow]\n"
-        f"Scheduled for [bold cyan]{phase}[/bold cyan].",
-        title="LoreWiki - phase pending",
-        border_style="yellow",
-    )
-    console.print(panel)
-    raise typer.Exit(code=2)
 
 
 def print_phase_status() -> None:
@@ -169,7 +155,6 @@ __all__ = [
     "human_bytes",
     "log",
     "parse_toml_literal",
-    "phase_pending",
     "print_phase_status",
     "resolve_config",
     "safe_load_toml",

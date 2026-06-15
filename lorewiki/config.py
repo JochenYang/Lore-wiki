@@ -185,6 +185,24 @@ def load_config(
     project_dir = (project_dir or Path.cwd()).resolve()
     project_cfg = _load_toml(project_dir / PROJECT_CONFIG_REL)
 
+    # Defensive: a project-level `wiki_path` that points to a non-existent
+    # directory would silently shadow the topic-derived path and surface
+    # as a confusing "no index found at <stale path>" error at search time.
+    # Detect that case, log a clear warning, and drop the stale value so
+    # the rest of the resolution chain (topic root / user config) wins.
+    # This protects users from earlier `lorewiki init --path <tmp>` tests
+    # or moved/deleted wiki directories.
+    if project_cfg and "wiki_path" in project_cfg:
+        stale_wiki_path = Path(str(project_cfg["wiki_path"])).expanduser()
+        if not stale_wiki_path.exists():
+            log.warning(
+                "project_cfg.wiki_path={} does not exist; ignoring the stale value. "
+                "Edit {} to remove the line, or restore the directory.",
+                stale_wiki_path,
+                project_dir / PROJECT_CONFIG_REL,
+            )
+            project_cfg = {k: v for k, v in project_cfg.items() if k != "wiki_path"}
+
     # When the active topic wins (no explicit --path, no explicit
     # project_dir), pin the topic root as wiki_path. Without this,
     # an empty merged dict falls through to LoreWikiConfig's default

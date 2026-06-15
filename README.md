@@ -368,7 +368,7 @@ it is and how to use it.
 
 - **Vector retrieval** (sqlite-vec + sentence-transformers) — opt-in,
   via `pip install lorewiki[vector]`.
-- **Incremental file-watcher** (`lorewiki update --watch`).
+- **Incremental file-watcher** (`lorewiki index --watch`, experimental in 0.3.0).
 - **PDF / Word ingestion** beyond Markdown.
 - **Atomic write of `~/lorewiki/current`** (currently best-effort).
 

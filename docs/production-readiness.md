@@ -163,9 +163,9 @@ for the explicit list of verified vs. unverified items.
    (`pip install lorewiki[vector]`) but no `VectorRetriever`
    implementation yet. Vector mode in CLI falls back to mix with a
    notice.
-3. **No incremental file-watcher** — `lorewiki update --watch` is
-   still a phase-pending placeholder (exit code 2 with a clear
-   panel).
+3. **No incremental file-watcher loop** — `lorewiki index --watch` is
+   accepted and runs a one-shot index in 0.3.0, with a warning that
+   the real file-watcher loop ships in 0.4.0 (phase 6).
 4. **No streaming `/ask`** — REST returns the full LLM answer in
    one response; no SSE endpoint yet.
 5. **No metrics / OpenTelemetry** — production deployments should
