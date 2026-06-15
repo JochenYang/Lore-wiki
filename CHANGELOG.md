@@ -10,6 +10,37 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] — 2026-06-15
+
+Patch release. Tightens the LLM agent skill so users never get
+silently merged into a freshly-invented ``general`` topic when
+they say "save this to my wiki" without naming one. The skill now
+includes an explicit "ask, don't surprise" decision tree for
+topic selection before any write operation, plus a
+``save this URL / doc`` row in the cheat sheet.
+
+No code change; only the bundled + source-tree copies of
+``SKILL.md`` are updated (they stay byte-identical to each other).
+PyPI install users pick up the new skill on their next
+``lorewiki install --force`` (or fresh install of 0.3.1).
+
+### Changed
+- ``lorewiki/data/skill_template/SKILL.md`` and
+  ``skills/lorewiki/SKILL.md``: new subsection
+  *Topic Selection Before Writing (the "ask, don't surprise"
+  rule)* — a decision tree the agent must walk when the user
+  says "save X to my wiki" without naming a topic. Leaves the
+  user in control of topic naming and selection; the agent
+  must ask, never auto-create.
+- ``.gitignore``: added ``SHARE.md`` (community-sharing
+  scratch file kept out of the repo).
+- Decision Cheat-Sheet at the bottom of ``SKILL.md``: the
+  ``"remember this"`` row split into a "topic named" form and
+  a "no topic" form (the latter points at the decision tree);
+  a new ``"save this URL / doc to my wiki"`` row added.
+- ``lorewiki/__init__.py``, ``pyproject.toml``: version
+  0.3.0 → 0.3.1.
+
 ## [0.3.0] — 2026-06-15
 
 Minor release. Removes the long-standing ``update`` subcommand stub

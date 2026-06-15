@@ -145,6 +145,47 @@ descriptions, the command exits with code 1 and prints a panel that
 tells the user to name the topic by hand. The agent should fall
 back to asking the user explicitly in that case.
 
+### Topic Selection Before Writing (the "ask, don't surprise" rule)
+
+If the user says "save this to my wiki" / "记到 wiki 里" / "メモして"
+**without naming a topic**, the LLM must **not** auto-create a topic
+on the user's behalf. The wiki is a long-lived knowledge asset —
+silently dropping a doc into a freshly-invented `general` vault is
+surprising and pollutes the user's mental model.
+
+Follow this tree strictly, and **ask the user at the leaves**:
+
+```text
+User: "save X to my wiki"  (no topic named)
+  │
+  ├── 1. Is there an active topic?  (~/lorewiki/current exists)
+  │     ├── YES → use it. No question needed.
+  │     └── NO  → go to step 2.
+  │
+  ├── 2. How many topics exist?  (lorewiki topic list --raw)
+  │     ├── 1 → "I see one topic '<name>'. Use it?" (one confirmation)
+  │     ├── 2-3 → list them, ask "which one?" (free text or pick)
+  │     └── 4+ → ask "which one?" (don't auto-pick)
+  │
+  └── 3. Zero topics exist
+        ├── Run `lorewiki topic suggest "<X summary>"` for English
+        │   descriptions, OR have the LLM propose 1-3 names itself
+        │   for CJK descriptions.
+        └── Show candidates to the user:
+              "I can create topic 'wechat-mp', 'wechat-miniprogram',
+              or 'mp'. Which? (Or pick your own — lowercase, digits,
+              hyphens, 1-64 chars.)"
+            User picks → lorewiki topic create <name>
+            User rejects all → ask for a name by hand.
+```
+
+**Why this matters**: a user who has spent a year curating
+`~/lorewiki/topics/react/`, `~/lorewiki/topics/api/`, etc., does
+**not** want their work silently merged into a `general` vault just
+because they said "wiki" without naming a topic. The cost of asking
+once is one round-trip; the cost of surprising the user is having
+to undo the merger later.
+
 **Path resolution priority** (later wins):
 1. `--topic` flag
 2. `LOREWIKI_TOPIC` env var
@@ -546,7 +587,9 @@ lorewiki clean    --path "<WIKI>" [--dry-run] [--no-backup]                     
 | "what's in the wiki / what modules exist"               | `lorewiki tree`                                               |
 | "does the wiki explain how X is implemented?"             | `lorewiki ask "how is X implemented?" --raw`                  |
 | "what modules does the wiki have?"                      | `lorewiki tree --depth 2`                                     |
-| "remember this / save this / take a note about X"       | `lorewiki add --title "X" --body "..."`                       |
+| "remember this / save this / take a note about X" (topic named)  | `lorewiki topic use <name> && lorewiki add --title "X" --body "..."` |
+| "remember this / save this to my wiki" (no topic)               | Follow the **Topic Selection Tree** (see "ask, don't surprise")     |
+| "save this URL / doc to my wiki"                                 | Fetch content (webfetch / Read tool) → `lorewiki add --title X --body "<fetched>"` |
 | "store these N pages / scrape this site"                | Drop the dir under the topic, then `lorewiki index`           |
 | "import my entire <some-tool> docs folder"              | `lorewiki topic create <name> --source <docs-folder>`          |
 | "why does this query return no results?"                 | Re-run with `--mode bm25` to inspect scores                   |

@@ -57,3 +57,7 @@ uv.lock
 !.env.example
 *.local.toml
 
+# Sharing scratch — written for copy-paste to community channels,
+# never intended to be part of the repo.
+SHARE.md
+
