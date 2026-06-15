@@ -17,6 +17,7 @@ from lorewiki.cli import (
     commands,  # noqa: F401  (registers init / index / …)
     config_cmds,  # noqa: F401  (registers config list / get / set)
     helpers,  # noqa: F401  (side-effect: re-export symbols)
+    install_cmd,  # noqa: F401  (registers `lorewiki install`)
     topic_cmds,  # noqa: F401  (registers topic …)
 )
 from lorewiki.cli.apps import app  # re-exported for the entry point

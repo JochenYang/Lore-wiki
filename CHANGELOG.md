@@ -10,6 +10,37 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.5] — 2026-06-15
+
+PyPI users can now install the agent skill without cloning the
+repository. Previously the only way to put the ``lorewiki`` skill
+into an AI tool's skills directory was ``python skills/install.py``
+from a source checkout, which meant PyPI users had no way to use
+the skill at all. 0.2.5 bundles the skill in the wheel and exposes
+a new ``lorewiki install`` subcommand that mirrors the source-tree
+installer's behaviour.
+
+### Added
+- ``lorewiki install`` subcommand (in ``lorewiki/cli/install_cmd.py``).
+  Accepts the same multi-select grammar as the source-tree
+  installer — single index (``3``), comma/space-separated
+  (``1,3,5`` / ``1 3 5``), ranges (``2-4``), and mixed
+  (``1,3-5,6``) — plus ``--all`` (install to every detected
+  tool), ``--tool`` (explicit list), ``--force`` (overwrite),
+  ``--uninstall``, and ``--status``.
+- ``lorewiki.utils.skill_installer`` module: the cross-platform
+  install / uninstall / detect primitives the wheel-side
+  subcommand is built on. The source-tree
+  ``skills/install.py`` continues to exist and ships the same
+  grammar; the two share a deliberate one-way mirror (wheel
+  inherits the catalog at install time, source stays the dev
+  truth).
+- Bundle the LoreWiki agent skill inside the wheel as package
+  data: ``lorewiki/data/skill_template/SKILL.md`` is now listed
+  in ``pyproject.toml`` under
+  ``[tool.hatch.build.targets.wheel].include`` and read at
+  install time via ``importlib.resources``.
+
 ## [0.2.4] — 2026-06-15
 
 Documentation-accuracy fix. 0.2.0 through 0.2.3's `lorewiki --help`,
