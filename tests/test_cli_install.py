@@ -219,6 +219,99 @@ def test_install_creates_aliases_for_cursor_and_gemini(
     assert primary.read_bytes() == alias.read_bytes()
 
 
+def test_install_skips_locked_primary_keeps_going_to_alias(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression for 0.2.8: if the primary path is locked (e.g.
+    Cursor writes a ``.skill-lock.json`` while the agent is
+    running, which surfaces as ``PermissionError`` on
+    ``write_text``), the alias path still gets a copy.
+
+    Before 0.2.8, ``primary.write_text()`` raised out of
+    ``install_skill`` and the ``for alias_tmpl in tool.aliases:``
+    loop was never entered — so the alias path was silently
+    never created and ``--status`` showed ``[ ]`` forever.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+    (tmp_path / ".cursor").mkdir()
+    (tmp_path / ".agents").mkdir()
+
+    cursor = next(t for t in si.TOOLS if t.id == "cursor")
+    primary_path = cursor.resolve(cursor.primary)
+    alias_path = cursor.resolve(cursor.aliases[0])
+
+    # Lock the primary path: write_text on the *file* should fail
+    # with PermissionError. The cheapest portable fake is to
+    # replace it on the file itself, not on a directory lock —
+    # we can simulate the failure by patching write_text on the
+    # primary path only.
+    real_write_text = type(primary_path).write_text
+
+    def fake_write_text(self, *a, **kw):
+        if self == primary_path:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_write_text(self, *a, **kw)
+
+    monkeypatch.setattr(type(primary_path), "write_text", fake_write_text)
+
+    actions = si.install_skill(cursor)
+
+    # The alias path *must* be created even though the primary
+    # write failed.
+    assert alias_path.exists(), (
+        f"alias was not written because primary write failed.\n"
+        f"actions: {actions!r}"
+    )
+    # The action list reports both the failure and the success.
+    assert any("write failed" in line for line in actions)
+    assert any("wrote" in line and "alias" in line for line in actions)
+
+
+def test_uninstall_continues_past_locked_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mirror of :func:`test_install_skips_locked_primary_keeps_going_to_alias`
+    for the uninstall path."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+    (tmp_path / ".cursor").mkdir()
+    (tmp_path / ".agents").mkdir()
+
+    cursor = next(t for t in si.TOOLS if t.id == "cursor")
+    # Pre-populate both targets.
+    si.install_skill(cursor)
+
+    primary_path = cursor.resolve(cursor.primary)
+    alias_path = cursor.resolve(cursor.aliases[0])
+    assert primary_path.exists() and alias_path.exists()
+
+    real_unlink = type(primary_path).unlink
+
+    def fake_unlink(self, *a, **kw):
+        if self == primary_path:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_unlink(self, *a, **kw)
+
+    monkeypatch.setattr(type(primary_path), "unlink", fake_unlink)
+
+    actions = si.uninstall_skill(cursor)
+
+    assert not alias_path.exists(), (
+        f"alias should have been removed even though primary was "
+        f"locked. actions={actions!r}"
+    )
+    assert any("unlink failed" in line for line in actions)
+    # The alias path was successfully unlinked (the [rm] action
+    # line points at the alias path).
+    rm_lines = [line for line in actions if line.startswith("[rm]")]
+    assert any(str(alias_path) in line for line in rm_lines), (
+        f"expected an [rm] action for {alias_path}, got {rm_lines!r}"
+    )
+
+
 def test_uninstall_removes_primary_and_aliases(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -10,6 +10,39 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.9] — 2026-06-15
+
+Bug-fix release. 0.2.8 closed the CJK / cross-platform story for
+search and ingest, but the wheel-side ``lorewiki install``
+subcommand had a related issue: when the *primary* path of a
+tool was locked (e.g. Cursor writes a ``.skill-lock.json``
+while the agent is running, which surfaces as
+``PermissionError`` on ``Path.write_text``), the
+``for alias_tmpl in tool.aliases:`` loop in ``install_skill``
+was never entered — so Cursor / Gemini ``~/.agents/skills/``
+aliases were silently never created and ``--status`` reported
+``[ ]`` for them forever. 0.2.9 wraps each ``write_text`` (and
+``unlink``) call in its own ``try / except OSError``, so a
+locked primary becomes a ``[skip]`` line and the alias loop
+runs to completion.
+
+### Fixed
+- ``lorewiki/utils/skill_installer.py``: each target write in
+  ``install_skill`` and each target unlink in ``uninstall_skill``
+  is now wrapped in its own ``try / except OSError``. A locked
+  primary path no longer aborts the rest of the install /
+  uninstall — it surfaces as a ``[skip]`` line and the
+  next target (primary alias, etc.) gets its turn.
+
+### Tests
+- ``tests/test_cli_install.py``: two new regressions — one
+  for the install path (locked primary → alias loop must
+  still run) and one for the uninstall path (locked primary
+  → alias must still be removed). Each uses ``monkeypatch``
+  to simulate ``PermissionError`` on the primary
+  ``Path.write_text`` / ``Path.unlink`` and asserts the
+  alias side-effect did happen.
+
 ## [0.2.8] — 2026-06-15
 
 Final cross-platform encoding fix. 0.2.7 closed the *output*

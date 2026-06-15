@@ -270,6 +270,14 @@ def install_skill(
     directly to the user). ``overwrite=True`` re-writes an existing
     target; the default is to refuse and emit a ``[skip]`` line so
     the caller can surface a friendly hint.
+
+    Each target (primary + every alias) is wrapped in its own
+    ``try/except OSError``. Some agent tools (Cursor, Gemini) lock
+    their skills directory with a ``.skill-lock.json`` while the
+    agent is running, which surfaces as ``PermissionError`` on
+    ``write_text``. We don't want one locked path to abort the
+    rest of the install — we surface the failure as a ``[skip]``
+    line and move on.
     """
     if skill_text is None:
         skill_text = _read_skill_template()
@@ -279,8 +287,14 @@ def install_skill(
     if primary.exists() and not overwrite:
         actions.append(f"[skip] {primary} (exists; pass --force to overwrite)")
     else:
-        primary.write_text(skill_text, encoding="utf-8")
-        actions.append(f"[ok]   wrote {primary}")
+        try:
+            primary.write_text(skill_text, encoding="utf-8")
+        except OSError as exc:
+            actions.append(
+                f"[skip] {primary} (write failed: {exc})"
+            )
+        else:
+            actions.append(f"[ok]   wrote {primary}")
     for alias_tmpl in tool.aliases:
         alias = tool.resolve(alias_tmpl)
         if alias == primary:
@@ -291,21 +305,36 @@ def install_skill(
                 f"[skip] {alias} (alias; exists; pass --force to overwrite)"
             )
         else:
-            alias.write_text(skill_text, encoding="utf-8")
-            actions.append(f"[ok]   wrote {alias} (alias)")
+            try:
+                alias.write_text(skill_text, encoding="utf-8")
+            except OSError as exc:
+                actions.append(
+                    f"[skip] {alias} (alias; write failed: {exc})"
+                )
+            else:
+                actions.append(f"[ok]   wrote {alias} (alias)")
     return actions
 
 
 def uninstall_skill(tool: Tool) -> list[str]:
-    """Remove the skill from the tool's primary path and aliases."""
+    """Remove the skill from the tool's primary path and aliases.
+
+    Each target is wrapped in its own ``try/except OSError`` for the
+    same reason as :func:`install_skill`: a locked directory or
+    read-only mount should not abort the rest of the uninstall.
+    """
     actions: list[str] = []
     for tmpl in (tool.primary, *tool.aliases):
         target = tool.resolve(tmpl)
-        if target.exists() or target.is_symlink():
-            target.unlink()
-            actions.append(f"[rm]   {target}")
-        else:
+        if not (target.exists() or target.is_symlink()):
             actions.append(f"[skip] {target} (not present)")
+            continue
+        try:
+            target.unlink()
+        except OSError as exc:
+            actions.append(f"[skip] {target} (unlink failed: {exc})")
+        else:
+            actions.append(f"[rm]   {target}")
     return actions
 
 
