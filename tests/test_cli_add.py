@@ -192,7 +192,7 @@ def test_cli_add_blocks_path_traversal_in_module(fresh_wiki: Path) -> None:
     ``_is_safe_target`` check: a file whose path resolves outside the
     wiki root must be rejected. We exercise it directly so the test
     doesn't depend on the slugifier being a complete filter."""
-    from lorewiki.cli.add import _is_safe_target
+    from lorewiki.cli.add import _is_safe_target  # noqa: PLC0415
 
     # These all resolve outside the wiki root — must be rejected.
     assert not _is_safe_target(fresh_wiki, fresh_wiki.parent / "evil.md")

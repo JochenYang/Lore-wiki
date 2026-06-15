@@ -199,7 +199,7 @@ def _slug_tokenize(description: str) -> list[str]:
     return tokens
 
 
-def suggest_names(  # noqa: PLR0912 - branched for collision-avoidance + token variants
+def suggest_names(  # branched for collision-avoidance + token variants
     description: str, existing: list[str] | None = None, *,
     limit: int = _MAX_SUGGESTIONS,
 ) -> list[str]:

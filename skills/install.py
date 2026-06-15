@@ -282,7 +282,7 @@ def _is_alias_referenced_by_other_tools(alias_path: Path, *, exclude_tool_id: st
     return False
 
 
-def install_tool(  # noqa: PLR0912,PLR0915 - branched by symlink/dry-run/force/alias/dedup paths
+def install_tool(  # branched by symlink/dry-run/force/alias/dedup paths
     tool: Tool,
     *,
     source: Path,
@@ -486,7 +486,7 @@ def _parse_tool_list(raw: str | None) -> list[Tool] | None:
     return [by_id[i] for i in ids]
 
 
-def main(argv: list[str] | None = None) -> int:  # noqa: PLR0912,PLR0911,PLR0915 - CLI dispatch table
+def main(argv: list[str] | None = None) -> int:  # CLI dispatch table
     parser = argparse.ArgumentParser(
         description="Install / uninstall the LoreWiki agent skill for "
         "multiple AI coding tools.",

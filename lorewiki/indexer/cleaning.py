@@ -262,10 +262,10 @@ def clean_heading_path(heading_path: str) -> str:
         return ""
     parts = []
     for seg in heading_path.split(">"):
-        seg = _ANCHOR_SEGMENT_RE.sub(_ANCHOR_SEGMENT_REPL, seg).strip()
-        seg = clean_title(seg)
-        if seg:
-            parts.append(seg)
+        cleaned_seg = _ANCHOR_SEGMENT_RE.sub(_ANCHOR_SEGMENT_REPL, seg).strip()
+        cleaned_seg = clean_title(cleaned_seg)
+        if cleaned_seg:
+            parts.append(cleaned_seg)
     return " > ".join(parts)
 
 

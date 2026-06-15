@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from rich.markdown import Markdown
@@ -28,7 +28,10 @@ from lorewiki.cli.helpers import (
 from lorewiki.config import LoreWikiConfig, save_config
 from lorewiki.db import get_meta, open_db
 from lorewiki.indexer import build_index, cleaning, iter_markdown_files
+from lorewiki.indexer.cleaning import clean_markdown_file
+from lorewiki.indexer.parser import parse_markdown
 from lorewiki.llm import AnswerGenerator
+from lorewiki.retriever import run_search
 
 # ---------------------------------------------------------------------------
 # init
@@ -236,9 +239,6 @@ def search(
     synthesis and Markdown rendering. Use ``--human`` here only when you
     want to eyeball raw retrieval hits in the terminal.
     """
-    from lorewiki.retriever import run_search  # local import keeps the
-                                             # module top-level clean.
-
     cfg = resolve_config(path)
     db_path = cfg.db_path
     if db_path is None:
@@ -446,8 +446,6 @@ def clean(
     Reindex after running this so the SQLite index reflects the new
     file contents (``lorewiki index`` is incremental).
     """
-    from lorewiki.indexer.cleaning import clean_markdown_file
-
     cfg = resolve_config(path)
     if not cfg.wiki_path.exists() or not cfg.wiki_path.is_dir():
         console.print(f"[red]wiki path not found:[/red] {cfg.wiki_path}")
@@ -517,7 +515,7 @@ def clean(
 def show(
     doc_path: Annotated[
         str,
-        typer.Argument(..., help="Relative path inside the wiki, e.g. api/share/wx.showShareMenu.md"),
+        typer.Argument(..., help="Relative path inside the wiki, e.g. 'api/share/foo.md'."),
     ],
     path: Annotated[
         str | None,
@@ -546,8 +544,6 @@ def show(
         # boilerplate), we go through the parser. Otherwise we render the
         # cleaned body that was indexed.
         if raw:
-            from lorewiki.indexer.parser import parse_markdown
-
             abs_path = cfg.wiki_path / doc_path
             if not abs_path.exists():
                 console.print(f"[red]file not found:[/red] {abs_path}")
@@ -591,8 +587,6 @@ def tree(
     ] = None,
 ) -> None:
     """Print the wiki hierarchy as a tree."""
-    from typing import Any  # local: keeps the module top-level clean
-
     cfg = resolve_config(path)
     if cfg.db_path is None or not cfg.db_path.exists():
         console.print("[red]No index found. Run `lorewiki index` first.[/red]")
@@ -622,7 +616,10 @@ def tree(
         children.setdefault("__root__", [])
 
         def _walk(node_id: str, current_depth: int, prefix_str: str, is_last: bool) -> None:
-            node = next((n for n in all_nodes if n["id"] == node_id), None) if node_id != "__root__" else None
+            if node_id == "__root__":
+                node = None
+            else:
+                node = next((n for n in all_nodes if n["id"] == node_id), None)
             if node is None and node_id == "__root__":
                 label = "[bold]LoreWiki[/bold]"
             elif node is None:

@@ -362,9 +362,9 @@ def test_topic_show_does_not_print_duplicate_name_field(
 ) -> None:
     """Regression: ``lorewiki topic show`` used to print ``[bold]name[/bold]``
     twice (a copy-paste bug). Ensure each field appears exactly once."""
-    from typer.testing import CliRunner
+    from typer.testing import CliRunner  # noqa: PLC0415
 
-    from lorewiki.cli.apps import app
+    from lorewiki.cli.apps import app  # noqa: PLC0415
 
     runner = CliRunner()
     mgr = TopicManager()

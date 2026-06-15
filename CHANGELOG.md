@@ -10,6 +10,31 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] — 2026-06-15
+
+CI-fix release. The 0.2.0 tag triggered a successful test run
+but `ruff check` failed with 14 lint errors, blocking the
+PyPI publish step. No user-facing changes.
+
+### Fixed
+- `pyproject.toml`: added `PLR0911` / `PLR0912` / `PLR0915` to
+  the `ruff.lint.ignore` list (these are blunt complexity metrics;
+  splitting `clean` or `build_index` would only create artificial
+  seams). Removed the now-redundant `# noqa: PLR0912[,PLR0915]`
+  markers in `lorewiki/topic.py` and `skills/install.py`.
+- `lorewiki/cli/commands.py`: moved four function-scoped
+  `lorewiki.*` imports (`run_search`, `clean_markdown_file`,
+  `parse_markdown`, `typing.Any`) to the top of the module.
+- `lorewiki/cli/commands.py`: broke two `> 100` char lines
+  (`lorewiki show` arg help, dense `__root__` lookup in
+  `lorewiki tree`).
+- `lorewiki/indexer/cleaning.py`: renamed the per-segment loop
+  variable in `clean_heading_path` to `cleaned_seg` so the inner
+  reassignment no longer shadows the loop target (PLW2901).
+- `tests/test_cli_add.py`, `tests/test_topic.py`: added
+  `# noqa: PLC0415` to function-scoped imports (standard
+  convention for conditional test imports).
+
 ## [0.2.0] — 2026-06-15
 
 CLI + opencode-skill surface. The REST and MCP server code paths
