@@ -10,6 +10,53 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.4] — 2026-06-15
+
+Documentation-accuracy fix. 0.2.0 through 0.2.3's `lorewiki --help`,
+README, and `docs/install.md` all described an `npm install -g
+lorewiki` install path as if it were live, but the project has
+never actually been published to npm — the `NPM_TOKEN` GitHub
+secret is unset, so the CI `Publish to npm` step has been skipped
+on every release to date, and `https://registry.npmjs.org/lorewiki`
+returns 404. This release removes the npm shim infrastructure and
+all npm install instructions so the docs match reality.
+
+### Removed
+- `package.json` — npm manifest (only ever consumed by npm, not
+  by the wheel build, which goes through hatchling on
+  `pyproject.toml`).
+- `bin/lorewiki.js` — npm shim that spawned the Python wheel.
+- `scripts/postinstall.js` — npm `postinstall` hook that called
+  `uv tool install lorewiki`.
+- `scripts/preuninstall.js` — npm `preuninstall` hook that called
+  `uv tool uninstall lorewiki`.
+- `scripts/publish.sh` / `scripts/publish.ps1` — manual release
+  pipeline (was already replaced by `.github/workflows/publish.yml`;
+  this just removes the dead code and the dead-code reference in
+  `scripts/_README.md`).
+- `README.npm.md` — npm-only README.
+- `.npmignore` — npm packaging config.
+
+### Changed
+- `README.md`, `docs/README_zh-CN.md`, `docs/install.md` — removed
+  every `npm install -g lorewiki` reference, every "Node (npm
+  shim)" subsection, the "Why uv tool vs npm" table row, and the
+  "(Optional) npm" step in the maintainer publishing checklist.
+  The `lorewiki` project is now documented as a single-channel
+  PyPI distribution.
+- `.github/workflows/publish.yml` — removed the `Publish to npm`
+  step (was guarded by `if: env.NPM_TOKEN` and always skipped).
+- `scripts/_README.md` — replaced the "publish.sh / publish.ps1"
+  reference with a pointer at the GitHub Actions workflow.
+
+### Migration
+- Anyone who installed via `npm install -g lorewiki` is
+  unaffected: the npm package was never published, so the
+  command `lorewiki` on their `PATH` either came from a Python
+  install they did themselves or is a 404. They can verify
+  with `Get-Command lorewiki` (PowerShell) or `which lorewiki`
+  (Unix) and reinstall from PyPI per the new README.
+
 ## [0.2.3] — 2026-06-15
 
 UX polish on the CLI help surface. No behaviour change. The

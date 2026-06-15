@@ -45,9 +45,9 @@ LoreWiki 把团队的 Markdown 文档索引到本地 SQLite，并通过 CLI、RE
 
 ## 安装
 
-LoreWiki 主推 **PyPI Python wheel**(权威源),同时发布一个 **npm shim** 走同一个 wheel。任选其一:
+LoreWiki 是**单一 PyPI Python wheel**(唯一的发布渠道)。选一个安装器即可:
 
-### Python(推荐,功能最全)
+### uv(推荐,功能最全)
 
 ```bash
 # 安装——自动建独立 venv,lorewiki.exe(Windows)或 lorewiki(macOS/Linux)加入 PATH
@@ -81,16 +81,6 @@ pip install 'lorewiki[vector]'    # 可选:向量检索
 
 > 0.2.0 砍掉了 0.1.x 的 `[rest]` 和 `[mcp]` extras——FastAPI/MCP 服务面已由
 > CLI + opencode skill 取代。`[all]` 现在等价于 `[vector]`。
-
-### Node(npm shim,CLI 行为完全一致)
-
-```bash
-npm install -g lorewiki           # postinstall 钩子会调 `uv tool install lorewiki`
-npm install -g lorewiki@latest    # 升级
-npm uninstall -g lorewiki         # 同时调 `uv tool uninstall lorewiki`
-```
-
-npm 包只是 shim,真正干活的是 postinstall 装好的 Python `lorewiki`。详见 [`README.npm.md`](../README.npm.md)。
 
 ### 从源码(给贡献者)
 

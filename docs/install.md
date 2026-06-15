@@ -1,12 +1,7 @@
 ﻿# Installing, upgrading, and uninstalling LoreWiki
 
 > LoreWiki is a Python tool and lives on **PyPI** as the canonical
-> source. The same release is also published to **npm** as a thin
-> Node shim that proxies to the Python wheel. **Either** install
-> path is supported:
->
-> - **Python user** (recommended, full feature set): `uv tool install lorewiki`
-> - **Node user** (familiar `npm install -g` flow, same CLI): `npm install -g lorewiki`
+> (and only) distribution channel.
 >
 > This document is the deep-dive companion to the README's
 > [`## Installation`](../README.md#installation) section. Read the
@@ -15,8 +10,6 @@
 > workflow for maintainers.
 
 ## TL;DR
-
-### Python (recommended)
 
 ```bash
 # Install (isolated per-tool venv, lorewiki added to PATH):
@@ -42,27 +35,6 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-### Node (npm shim)
-
-```bash
-# Install — the postinstall hook calls `uv tool install lorewiki`
-# (or pipx / pip as fallback) so the same Python wheel ends up on
-# your PATH:
-npm install -g lorewiki
-
-# Upgrade (re-runs postinstall with the new version):
-npm install -g lorewiki@latest
-
-# Uninstall (also runs `uv tool uninstall lorewiki` if the wheel
-# version matches the npm version):
-npm uninstall -g lorewiki
-```
-
-The npm package contains no real logic — it spawns the Python
-`lorewiki` binary that the postinstall hook installed. See
-[README.npm.md](../README.npm.md) for the full story and fallback
-behavior when no Python package manager is on `PATH`.
-
 ## Why `uv tool` and not `pip install --user`?
 
 | Install method                                | Isolation            | PATH handling            | Notes                                                      |
@@ -71,10 +43,6 @@ behavior when no Python package manager is on `PATH`.
 | `pipx install lorewiki`                      | own venv, per-tool   | automatic                | Older alternative; `uv tool` is faster and ships with uv     |
 | `pip install --user lorewiki`               | shared user-site     | manual (PATH)            | Slow; conflicts with system Python                          |
 | `pip install lorewiki` (system)              | **none**             | system PATH             | ❌ Avoid — can break the system Python                      |
-| `npm install -g lorewiki` (npm shim)         | own venv, per-tool   | automatic                | Node-friendly entry point; the wheel is still the artifact — postinstall calls `uv tool install lorewiki` for you. Use this if you have npm but not `uv`; once it runs once you can ignore npm and treat `lorewiki` as a normal CLI. |
-
-`uv tool install` is what the project uses during development
-(`.venv` is identical) and what the README documents. Stick with it.
 
 ## Optional dependencies (extras)
 
@@ -224,8 +192,8 @@ want to push a new release:
    git commit -m "build: bump version to X.Y.Z"
    git push origin main
    git tag -a vX.Y.Z -m "Release X.Y.Z: <one-line summary>"
-   git push origin vX.Y.Z
-   ```
+    git push origin vX.Y.Z
+    ```
 4. **CI handles the rest**: the `Publish to PyPI` workflow is
    triggered by the tag push. It re-runs the tests + lint, builds
    the wheel/sdist, and uploads to **PyPI via Trusted Publishing
@@ -233,11 +201,6 @@ want to push a new release:
    constraint (configured in the PyPI control panel) ensures only
    the GitHub Actions run from the `pypi` environment can exchange
    an OIDC token for an upload token.
-5. **(Optional) npm**: if `NPM_TOKEN` is configured as a GitHub
-   secret, the workflow also publishes the npm shim. Without it,
-   the npm step is skipped with a warning; the PyPI release is
-   still complete and the npm version can be published later from
-   a developer machine.
 
 ## Versioning
 
@@ -251,6 +214,5 @@ LoreWiki follows [Semantic Versioning](https://semver.org/) —
 ## Channels (future)
 
 We may publish a `lorewiki-canary` channel on TestPyPI for
-preview releases; today, **all** releases go to **stable** on PyPI
-and `latest` on npm. Nightly / canary builds are out of scope
-for v0.2.x.
+preview releases; today, **all** releases go to **stable** on PyPI.
+Nightly / canary builds are out of scope for v0.2.x.

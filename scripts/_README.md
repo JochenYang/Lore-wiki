@@ -5,8 +5,12 @@ under `../tests/` are what CI runs).
 
 ## Operator scripts
 
-- `publish.sh` / `publish.ps1` — PyPI + npm release pipeline.
-  See [the install doc](../docs/install.md) for the full checklist.
+- The release pipeline is fully driven by the `Publish to PyPI`
+  GitHub Actions workflow (`.github/workflows/publish.yml`).
+  Maintainers bump the version, commit, tag, and push; the workflow
+  handles tests, lint, build, and PyPI upload via Trusted
+  Publishing (OIDC). See [the install doc](../docs/install.md) for
+  the full checklist.
 - `install.py` lives in `../skills/`, not here.
 
 ## Benchmark / smoke scripts (dev only)

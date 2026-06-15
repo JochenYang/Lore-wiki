@@ -61,10 +61,10 @@ it directly.
 
 ## Installation
 
-LoreWiki ships as a Python wheel on **PyPI** (canonical) with an
-**npm shim** that proxies to the same wheel. Pick one:
+LoreWiki ships as a single Python wheel on **PyPI** (the only
+distribution channel). Pick your preferred installer:
 
-### Python (recommended, full feature set)
+### uv (recommended, full feature set)
 
 ```bash
 # Install — isolated per-tool venv, the lorewiki.exe (Windows)
@@ -100,18 +100,6 @@ pip install 'lorewiki[vector]'    # opt-in: vector retrieval
 > The `[rest]` and `[mcp]` extras from 0.1.x are gone as of 0.2.0.
 > The CLI + opencode skill replaced the FastAPI / MCP server surface.
 > The `[all]` extra is now an alias for `[vector]`.
-
-### Node (npm shim, identical CLI)
-
-```bash
-npm install -g lorewiki           # postinstall calls `uv tool install lorewiki`
-npm install -g lorewiki@latest    # upgrade
-npm uninstall -g lorewiki         # also runs `uv tool uninstall lorewiki`
-```
-
-The npm package is a thin shim — it spawns the Python `lorewiki` that
-the postinstall hook installed. See [`README.npm.md`](README.npm.md)
-for the full story.
 
 ### From source (for contributors)
 
