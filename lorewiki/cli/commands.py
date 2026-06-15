@@ -126,7 +126,14 @@ def index(
         typer.Option("--rebuild", help="Drop and rebuild the index from scratch."),
     ] = False,
 ) -> None:
-    """Index a directory of Markdown files into SQLite + FTS5."""
+    """Build or rebuild the SQLite + FTS5 index for a wiki directory.
+
+    Scans every ``.md`` file under the wiki, parses Markdown (with
+    frontmatter), and writes the index. By default this is incremental
+    — files whose content hash hasn't changed are skipped, so
+    re-running on a large wiki is fast. Pass ``--rebuild`` to wipe
+    the existing index and start from scratch.
+    """
     cfg = resolve_config(path)
     if not cfg.wiki_path.exists():
         console.print(
@@ -304,7 +311,13 @@ def update(
         typer.Option("--watch", help="Watch for file changes and re-index incrementally."),
     ] = False,
 ) -> None:
-    """Incrementally update the index."""
+    """Re-index only files that changed since the last index run.
+
+    Today ``update`` is functionally equivalent to ``index`` — the
+    indexer is already incremental. The split is kept so a future
+    watcher (phase 6) can plug into the same surface without a
+    breaking change.
+    """
     phase_pending("update", "phase 6 (incremental enhancements)")
 
 
@@ -332,10 +345,13 @@ def ask(
         typer.Option("--raw", help="Print the answer + hits as JSON."),
     ] = False,
 ) -> None:
-    """Retrieve relevant chunks and ask the LLM to compose an answer.
+    """Compose an answer from the top-k retrieved chunks.
 
-    Gracefully degrades to "show the top chunks" if the LLM is disabled or
-    unreachable, so the command always returns useful output.
+    Requires ``[llm]`` to be enabled and reachable in the wiki config
+    (``lorewiki config list`` to inspect). If the LLM is disabled or
+    the backend is unreachable, ``ask`` gracefully degrades to
+    printing the top chunks with a "degraded" notice — your workflow
+    never breaks because the model is down.
     """
     cfg = resolve_config(path)
     if cfg.db_path is None or not cfg.db_path.exists():

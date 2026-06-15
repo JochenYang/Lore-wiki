@@ -10,6 +10,29 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.3] — 2026-06-15
+
+UX polish on the CLI help surface. No behaviour change. The
+`lorewiki --help` banner and the per-command help text are both
+sourced from in-source docstrings, so this is a wheel-affecting
+change despite touching no runtime logic.
+
+### Changed
+- `lorewiki/cli/apps.py`: rewrote the `--topic` / `-t` global
+  option help to (1) make it explicit that the option REQUIRES a
+  topic name and (2) call out the difference between the OPTION
+  form (`--topic react search "useState"`) and the SUBCOMMAND
+  form (`lorewiki topic list`). The previous wording was the
+  cause of a 0.2.x UX bug report — `--topic` without an argument
+  errored with "Option '--topic' requires an argument", which
+  did not point users at the `topic` subcommand.
+- `lorewiki/cli/commands.py`: clarified the `index`, `update`,
+  and `ask` docstrings so `lorewiki --help` shows a clear
+  distinction between `index` (build / rebuild) and `update`
+  (currently a stub for the future watcher) and explains that
+  `ask` falls back to top-k chunks when the LLM is unreachable
+  instead of crashing.
+
 ## [0.2.2] — 2026-06-15
 
 Bug-fix release. 0.2.1 shipped the `lorewiki add` command, but

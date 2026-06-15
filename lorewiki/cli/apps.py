@@ -150,9 +150,11 @@ def main(
             "--topic",
             "-t",
             help=(
-                "Active knowledge topic for this invocation. Overrides "
-                "LOREWIKI_TOPIC env and ~/lorewiki/current. Use `lorewiki "
-                "topic list` to see available topics."
+                "Active knowledge topic NAME for this invocation. Overrides "
+                "the LOREWIKI_TOPIC env var and ~/lorewiki/current. "
+                "Note: this is the OPTION form — to manage topics "
+                "(list / create / use / delete), use the `topic` subcommand. "
+                "Example: --topic react search 'useState closure'."
             ),
         ),
     ] = None,

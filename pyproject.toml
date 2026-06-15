@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lorewiki"
-version = "0.2.2"
+version = "0.2.3"
 description = "Local-first knowledge base for LLM-assisted coding, with hybrid retrieval (BM25 + hierarchy + optional vector) over SQLite FTS5."
 readme = "README.md"
 requires-python = ">=3.10"
