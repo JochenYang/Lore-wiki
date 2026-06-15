@@ -10,6 +10,28 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.7] — 2026-06-15
+
+Cross-platform fix. 0.2.6's ``Tool.resolve`` relied solely on
+``os.path.expandvars`` to substitute ``$XDG_CONFIG_HOME`` /
+``$CODEX_HOME`` / ``$GEMINI_HOME``. That works on POSIX, where
+``expandvars`` understands ``$VAR``, but on Windows it silently
+leaves the literal ``$VAR`` in the resolved path, so ``lorewiki
+install --status`` (and any install / uninstall) printed / wrote
+to a path like ``D:\codes\test-lorewiki\$XDG_CONFIG_HOME\opencode\…``
+instead of ``%USERPROFILE%\.config\opencode\…``. The fix detects
+the un-expanded literal and substitutes the user's home dir.
+
+### Fixed
+- ``lorewiki/utils/skill_installer.py`` and ``skills/install.py``:
+  ``Tool.resolve`` now falls back to ``Path.home()``-relative
+  defaults (``~/.config`` / ``~/.codex`` / ``~/.gemini``) when
+  ``os.path.expandvars`` left ``$XDG_CONFIG_HOME`` /
+  ``$CODEX_HOME`` / ``$GEMINI_HOME`` unexpanded (i.e. on
+  Windows, where ``expandvars`` only knows ``%VAR%``). On POSIX
+  systems the original behaviour is unchanged because
+  ``expandvars`` already expanded the ``$VAR`` form.
+
 ## [0.2.6] — 2026-06-15
 
 Bug-fix release. 0.2.5's ``Publish to PyPI`` workflow failed on

@@ -80,12 +80,26 @@ class Tool:
     aliases: tuple[str, ...] = ()  # additional paths to symlink to the primary
 
     def resolve(self, path_template: str) -> Path:
-        """Expand ``<name>`` + ``$HOME``/``~``/``$XDG_*`` env vars to a Path."""
+        """Expand ``<name>`` + ``$HOME``/``~``/``$XDG_*`` env vars to a Path.
+
+        ``os.path.expandvars`` is platform-asymmetric: it expands
+        ``$VAR`` (POSIX) on Unix and ``%VAR%`` (cmd.exe) on Windows
+        — but never both. Since the templates use the POSIX form
+        (``$XDG_CONFIG_HOME`` etc.) and the goal is "XDG if set, else
+        ``~/.config``", we expand on POSIX, and on Windows we
+        detect the un-expanded ``$VAR`` and substitute
+        ``$HOME/.config`` (or ``.codex``/``.gemini``) by hand.
+        """
         s = path_template.replace("<name>", SKILL_NAME)
         # Honour XDG / CODEX_HOME / GEMINI_HOME when set, otherwise default.
         # We expandvars *after* replacing <name> so the variable name is
         # never confused with the literal "<name>".
         s = os.path.expandvars(s)
+        if any(needle in s for needle in ("$XDG_CONFIG_HOME", "$CODEX_HOME", "$GEMINI_HOME")):
+            home = str(Path.home())
+            s = s.replace("$XDG_CONFIG_HOME", f"{home}/.config")
+            s = s.replace("$CODEX_HOME", f"{home}/.codex")
+            s = s.replace("$GEMINI_HOME", f"{home}/.gemini")
         s = os.path.expanduser(s)
         return Path(s).resolve()
 
