@@ -1,6 +1,6 @@
 ﻿---
 name: lorewiki
-description: "Local-first Markdown knowledge base with hybrid retrieval (SQLite FTS5 trigram tokenizer + heading hierarchy + RRF fusion) and optional LLM answer generation (Ollama or OpenAI-compatible). Use when the user wants to search, ask, browse, or write to a documentation wiki; persist a learning, decision, or postmortem into a queryable store; or when they say 'wiki', 'knowledge base', '知识库', '查文档', '查 API', '查 wiki', 'lorewiki', 'internal docs', 'runbook', 'postmortem', 'team docs'. Two wiki-addressing modes: (1) global topic under ~/lorewiki/topics/<name>/ (recommended, set once via `lorewiki topic use <name>`), (2) per-project via `lorewiki --path <wiki_root>` for ad-hoc queries — always prefer the active topic and only fall back to --path when the user explicitly names a project directory. CLI is one shell call per command with structured JSON output by default for `search`/`show`/`tree`; no daemon, no server, no client config."
+description: "Local-first Markdown knowledge base with hybrid retrieval (SQLite FTS5 trigram tokenizer + heading hierarchy + RRF fusion) and optional LLM answer generation (Ollama or OpenAI-compatible). Use when the user wants to search, ask, browse, or write to a documentation wiki; persist a learning, decision, or postmortem into a queryable store; or when they say 'wiki', 'knowledge base', '知识库', '查文档', '查 API', '查 wiki', 'lorewiki', 'internal docs', 'runbook', 'postmortem', 'team docs'. Two wiki-addressing modes: (1) global topic under ~/lorewiki/topics/<name>/ (recommended, set once via `lorewiki topic use <name>`), (2) per-project via `lorewiki --path <wiki_root>` for ad-hoc queries — always prefer the active topic and only fall back to --path when the user explicitly names a project directory. CLI is one shell call per command with JSON output by default for `search`/`show`/`tree`; no daemon, no MCP client config, no server to keep alive."
 ---
 
 # lorewiki
@@ -8,33 +8,46 @@ description: "Local-first Markdown knowledge base with hybrid retrieval (SQLite 
 Local-first Markdown knowledge base. Index a directory of `.md` files into
 SQLite + FTS5, then retrieve / answer / browse / author via the `lorewiki` CLI.
 
-The single binary is the only runtime surface — there is no REST or
-MCP server to wire up. Works inside opencode / Codex / Aider / cron / CI
-scripts. For human consumption the CLI also ships a `show` /
-`tree` / `status` command that prints Rich tables; for agents, the
-same commands emit structured JSON.
+**Why this skill**: every command is one shell call, output is structured
+JSON by default for `search`/`show`/`tree` (no flag needed), no daemon
+to keep alive, no client config, no server to run. Works inside
+opencode / Codex / Aider / cron / CI scripts.
+
+**Output convention** (v0.2.0+):
+
+| Command        | Default                  | Human-readable flag        |
+|----------------|--------------------------|----------------------------|
+| `search`       | JSON (for agents)        | `--human` (Rich Table)     |
+| `tree`         | Rich Tree                | (always human)             |
+| `show`         | Cleaned markdown body    | `--raw` (on-disk verbatim) |
+| `ask`          | Markdown-rendered answer | `--raw` (JSON)             |
+| `topic list`   | Rich panel               | `--raw` (JSON)             |
+| `add`          | Rich panel               | `--raw` (JSON)             |
 
 ## When To Use
 
 Invoke this skill whenever the user wants to:
 
-- **Search** an internal wiki for API contracts, design patterns, runbooks,
-  postmortems, or any topic with `lorewiki search`.
-- **Ask** a question that should be answered from team docs (`lorewiki ask`).
-  Always degrades gracefully to "top-K chunks + notice" when no LLM is
-  configured — never wrap with try/except for "LLM unavailable".
-- **Browse** the hierarchy tree to discover what modules exist
-  (`lorewiki tree`).
-- **Author** a new note / decision / postmortem from the CLI
-  (`lorewiki add` — writes a Markdown file with frontmatter and
-  auto-reindexes so the new doc is immediately retrievable).
-- **Index** a brand-new wiki directory or refresh after edits.
-- **Inspect** index health (chunk count, last-indexed timestamp, db size).
+- **Read** — search the wiki (`lorewiki search`), ask a question
+  (`lorewiki ask`), browse the hierarchy (`lorewiki tree`), or dump a
+  single doc (`lorewiki show`).
+- **Write** — author a single note end-to-end via `lorewiki add`. The
+  command takes body via `--body` / `--file` / stdin, slugifies the
+  title into a filename, writes a Markdown file with frontmatter,
+  and triggers an incremental `build_index` so the new doc is
+  immediately retrievable. Use this whenever the user wants to
+  persist a learning, decision, postmortem, or any small chunk of
+  knowledge into the wiki.
+- **Index** — refresh the SQLite index from disk after manual edits
+  to .md files (`lorewiki index`). `add` runs this for you.
+- **Inspect** — `lorewiki status` shows chunk / doc / last-indexed
+  counts; `lorewiki topic list` enumerates topics.
 
 Trigger words: `wiki`, `knowledge base`, `知识库` (knowledge base),
 `查文档` (look up docs), `查 wiki` (look up wiki), `查 API`
 (look up API), `lorewiki`, `internal docs`, `runbook`, `postmortem`,
-`team docs`.
+`team docs`, `记住这个` (remember this), `存一下` (save this),
+`记笔记` (take a note).
 
 ## Prerequisites
 
@@ -157,8 +170,11 @@ answer in the returned chunks with file-path citations.
 
 ```powershell
 lorewiki search "<question or keywords>" `
-    --path "<WIKI>" --mode mix --top-k 5 --raw
+    --path "<WIKI>" --mode mix --top-k 5
 ```
+
+**No `--raw` flag** for `search` — JSON is the default. Pass `--human` if
+you actually want a Rich Table for terminal eyeballing (rare for agents).
 
 Returned JSON shape (parse it; don't grep the prettified panel):
 
@@ -178,6 +194,13 @@ Returned JSON shape (parse it; don't grep the prettified panel):
 ]
 ```
 
+The `snippet` field contains the **full chunk body** (anchor markup, scraper
+boilerplate, and the translation footer are stripped at index time — see
+`lorewiki.indexer.cleaning` for the rules). The `title` has no leading `#`
+and `heading_path` is ` > `-joined segments with anchors removed. The
+breadcrumb prefix that the chunker adds for FTS recall is also stripped
+from the snippet (it's already in `heading_path`).
+
 Then compose an answer that:
 - quotes the relevant snippets,
 - cites each fact with its `doc_path` (and optionally `heading_path`),
@@ -192,24 +215,26 @@ use `ask`. It already does retrieval + prompt assembly + LLM call:
 lorewiki ask "<question>" --path "<WIKI>" --top-k 5 --raw
 ```
 
-Returned JSON has `answer`, `used_llm`, `degraded_reason`, and `hits`.
-If `used_llm == false`, hand the `answer` text (which already includes the
-top chunks) straight back to the user — no need for a second tool call.
+`ask` defaults to a Markdown-rendered panel (human-friendly); add
+`--raw` to get the JSON shape with `answer`, `used_llm`, `degraded_reason`,
+and `hits`. If `used_llm == false`, hand the `answer` text straight back
+to the user — no need for a second tool call.
 
 ### 3. Discover the structure (before broad questions)
 
 If the user's request is broad ("what's in the wiki?", "what modules do we
-have?"), inspect the hierarchy first instead of guessing keywords:
+have?"), use the tree view:
 
 ```powershell
-lorewiki status --path "<WIKI>"
+lorewiki tree                    # full hierarchy
+lorewiki tree api/share --depth 3   # sub-tree with depth limit
 ```
 
-For deeper navigation, search in hierarchy mode (returns chunks grouped by
-the matched tree node):
+For "show me everything under module X" style queries, search in hierarchy
+mode (returns chunks grouped by the matched tree node):
 
 ```powershell
-lorewiki search "<module name>" --path "<WIKI>" --mode hierarchy --top-k 10 --raw
+lorewiki search "<module name>" --path "<WIKI>" --mode hierarchy --top-k 10
 ```
 
 ### 4. Write a new note to the wiki (knowledge persistence)
@@ -260,7 +285,7 @@ lorewiki index --path "<WIKI>"
 Verify by searching for a distinctive phrase from the new doc:
 
 ```powershell
-lorewiki search "Redis Streams decision" --path "<WIKI>" --mode mix --top-k 3 --raw
+lorewiki search "Redis Streams decision" --path "<WIKI>" --mode mix --top-k 3
 ```
 
 #### Path semantics (read this once, it shapes the whole vault)
@@ -390,30 +415,70 @@ lorewiki config set llm.openai_base_url '"https://openrouter.ai/api/v1"'
 > self-hosted vLLM-compatible endpoint, or wait for phase-7 Azure
 > support (open an issue if you need it sooner).
 
-### 7. Author a note (writes + re-indexes in one step)
+### 7. Write to the wiki — pick the right path
 
-Long-running batch ingestion is the indexer's job; for a single
-note the CLI ships `lorewiki add`:
+There are three honest ways to put content into the wiki. Pick the
+smallest one that does the job — over-engineering hurts:
 
-```bash
+| Scenario                                                   | Use                                                                                           |
+|------------------------------------------------------------|-----------------------------------------------------------------------------------------------|
+| **One-off note** (1-3 paragraphs, user just told you)       | `lorewiki add --title ... --body ...` — writes + auto-indexes in one step.                     |
+| **A handful of related notes** (≤ ~20)                     | Run `lorewiki add` a few times in a loop. Don't write a script.                                |
+| **Bulk scrape** (tens to thousands of files, e.g. scraping  | Either (a) drop the directory under the active topic and run `lorewiki index` (one-shot),   |
+| a vendor's docs, importing a git repo, etc.)                | or (b) write a short Python script that writes `.md` files with frontmatter and call       |
+|                                                            | `lorewiki index` once at the end.                                                             |
+| **Topic bootstrap** (creating a new isolated vault)         | `lorewiki topic create <name> [--source <path>]` — the topic system is built for this.        |
+
+**Auto-judgment rule for the LLM**: if the user pasted a paragraph
+or said "记住这个 / 存一下 / 记一下", reach for `lorewiki add`. If the
+user gave you a list / a URL / a directory / said "把所有这些都
+存进去", reach for a Python script (or `lorewiki topic create --source`).
+Don't run `lorewiki add` in a 50-iteration loop — the per-invocation
+indexing cost adds up.
+
+#### `lorewiki add` quick reference
+
+```powershell
 # Inline body
-lorewiki add \
-  --title "Python Design" \
-  --module patterns \
-  --tag python --tag design \
+lorewiki add `
+  --title "Python Design" `
+  --module patterns `
+  --tag python --tag design `
   --body "Some deep details about Python design pattern."
 
-# Or pipe from stdin
-echo "# Inferred Title\n\nbody text" | lorewiki add --module notes
+# Pipe from stdin (no --body)
+echo "# Inferred Title`n`nbody text" | lorewiki add --module notes
+
+# Bulk scrape: short Python script
+$urls = @("https://vendor.example.com/docs/a", "https://vendor.example.com/docs/b")
+foreach ($u in $urls) {
+    $md = (Invoke-WebRequest $u).Content | ./scrape.ps1
+    $slug = ($u -split "/" | Select-Object -Last 1) -replace ".html$", ""
+    lorewiki add --title $slug --module scraped --body $md --path $wiki
+}
+lorewiki index  # only if add was called many times; usually redundant
 ```
 
 The file lands at `<wiki>/<module>/<slug>.md`; the slug is derived
-from the title. After a successful write, an incremental
-`build_index` runs so the new doc is immediately retrievable via
-`lorewiki search`. Use `--raw` for machine-readable JSON output,
-`--force` to overwrite an existing file, and the path-traversal
-check will reject any `--module` value that resolves outside the
-wiki root.
+from the title via ASCII-only normalisation (Chinese characters in
+the title are stripped, so "RISC-V 工具链" becomes `risc-v` — see
+[slug caveats](#slug-caveats) below). After a successful write,
+an incremental `build_index` runs so the new doc is immediately
+retrievable. Use `--raw` for machine-readable JSON output,
+`--force` to overwrite an existing file. The path-traversal check
+will reject any `--module` value that resolves outside the wiki
+root.
+
+#### Slug caveats
+
+The slug is built with `[^a-z0-9]+` → `-`, lowercased, trimmed, then
+capped at 64 chars. **Non-ASCII characters in the title are
+stripped**, so the slug of "RISC-V 工具链" is just `risc-v` (the
+"工具链" is gone). For better slugs on Chinese titles, the user
+should pick an English title (or include the Chinese in `--body`
+and let the title be a short English handle). Same caveat for
+Vietnamese, Thai, Korean, etc. — the body keeps everything, the
+filename is the only thing that gets ASCII-folded.
 
 ## Modes (`--mode` flag for search / configured for ask)
 
@@ -422,7 +487,7 @@ wiki root.
 | `mix`     | Almost everything (default).                        | RRF-fused BM25 + hierarchy. Highest recall. |
 | `bm25`    | Exact-term / English / code-symbol queries.         | FTS5 trigram + LIKE fallback for short CJK. |
 | `hierarchy` | "Show me everything under module X" style queries.| Walks the module tree from matched node.    |
-| `vector`  | Opt-in: `pip install lorewiki[vector]`. Falls back to `mix` until then. | Reserved for the sqlite-vec layer.  |
+| `vector`  | Not implemented yet — silently falls back to `mix`. | Reserved for the phase-6 sqlite-vec layer.  |
 
 ## Output Discipline
 
@@ -435,18 +500,22 @@ wiki root.
   hallucinate content the wiki doesn't contain.
 - For `ask` with `used_llm == false`, the returned `answer` already lists
   the chunks — you can pass it through unchanged.
+- **Auto-judge the write path**: prefer `lorewiki add` for 1-3
+  paragraphs the user just told you. Drop a directory + `lorewiki index`
+  for bulk. **Never** wrap `add` in a 50-iteration loop when a
+  short script + one index call would be cleaner.
 
 ## Common Pitfalls
 
 | Pitfall                                                              | Avoidance                                                                                                                             |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Calling `lorewiki rest` / `lorewiki mcp` in the agent's bash and waiting on it — these are blocking servers and will hang the turn. | Tell the user to run them in their own terminal. For "verify REST works", call `Invoke-RestMethod http://127.0.0.1:<port>/health` instead. |
+| Reaching for `lorewiki add` in a tight loop for bulk ingestion.      | Drop the source directory and run `lorewiki index` once. Re-indexing every add is O(N) — a single bulk index is O(1).               |
 | Searching with a 1-2 character CJK query and getting "0 hits".       | Combine with at least one more char or use `--mode bm25` which falls back to LIKE for short queries.                                  |
 | Forgetting `--path` and assuming `cwd` has a wiki config.            | Always pass `--path`. If the user is ambiguous, follow the priority chain in [Path Handling Convention](#path-handling-convention).   |
 | Editing a `.md` and not re-indexing.                                 | `lorewiki index --path "<WIKI>"` is incremental — unchanged files skip; just run it.                                                  |
 | Using `Out-File` / `Set-Content` in PowerShell to write Markdown — may add BOM that breaks frontmatter parsing. | Use the agent's Write / Edit tool, or `[IO.File]::WriteAllText` with UTF-8 no-BOM.                                                    |
-| Asking `lorewiki ask` and assuming an LLM answer.                    | Check the `used_llm` field in `--raw` output; fallback is normal and useful.                                                          |
-| **`--raw` JSON output appears as a wall of `?` / replacement chars on Windows PowerShell.** | This was a pre-v0.1.1 bug; the CLI now forces UTF-8 stdout. If you still see it: (a) upgrade `lorewiki` via `uv tool upgrade lorewiki`; (b) as a fallback, prefix the command with `chcp 65001 |` to force the shell code page to UTF-8; (c) parse the prettified terminal panel for the `doc_path` and use the `Read` tool on the source `.md` file. |
+| Asking `lorewiki ask` and assuming an LLM answer.                    | Check the `used_llm` field in `ask --raw` output; fallback is normal and useful.                                                          |
+| JSON output appears as `?` / replacement chars on Windows PowerShell. | The CLI forces UTF-8 stdout. If you still see it: (a) upgrade `lorewiki`; (b) as a fallback, prefix the command with `chcp 65001 |` to force the shell code page to UTF-8; (c) parse the prettified terminal panel for the `doc_path` and use the `Read` tool on the source `.md` file. |
 | Brute-force scanning the whole filesystem when the wiki path is unknown. | Use the bounded-depth scan in [Path Handling Convention](#path-handling-convention) (Depth 3 against a small set of plausible roots such as the user's workspace and ``$HOME/Documents``), not ``Get-ChildItem -Recurse`` against an entire drive root. The exact list of roots is platform-specific; pick a small handful that makes sense for the user's machine, never a full recursive scan. |
 
 ## Quick Reference
@@ -459,18 +528,23 @@ lorewiki status   --path "<WIKI>"
 lorewiki search   "<QUERY>" --path "<WIKI>" --mode {mix|bm25|hierarchy} --top-k N   # default: JSON
 lorewiki show     "<DOC_PATH>" --path "<WIKI>" [--raw]                              # default: cleaned body
 lorewiki tree     "[<PREFIX>]" --path "<WIKI>" [--depth N]                         # hierarchy view
-lorewiki add      --title "<T>" [--module <M>] [--body <B> | --file <F> | stdin]   # author + reindex
+lorewiki add      --title "<T>" [--module <M>] [--body <B> | --file <F> | stdin]   # one-off write + reindex
 lorewiki ask      "<QUERY>" --path "<WIKI>" --top-k N --raw                         # JSON (default: Markdown)
+lorewiki topic    {list|use|create|show|...}                                        # vault management
 lorewiki config   {list|get|set} ... --path "<WIKI>"
+lorewiki clean    --path "<WIKI>" [--dry-run] [--no-backup]                          # on-disk .md rewrite
 ```
 
 ## Decision Cheat-Sheet
 
 | User intent                                            | Command                                                       |
 | ------------------------------------------------------ | ------------------------------------------------------------- |
-| "look up X in the wiki"                                 | `lorewiki search "X" --raw --mode mix --top-k 5`              |
-| "does the wiki explain how X is implemented?"             | `lorewiki ask "how is X implemented?" --raw`                   |
-| "what modules does the wiki have?"                      | `lorewiki status --path <WIKI>`                               |
-| "save this decision to the wiki"                        | Write `.md` with frontmatter → `lorewiki index`               |
-| "why does this query return no results?"                 | Re-run with `--mode bm25 --raw` to inspect scores             |
-| "wire lorewiki into Claude Desktop / Cursor"             | Use the opencode skill; this skill is the canonical entry point       |
+| "look up X in the wiki"                                 | `lorewiki search "X" --mode mix --top-k 5`                    |
+| "show me the full content of doc Y"                     | `lorewiki show "<DOC_PATH>"`                                  |
+| "what's in the wiki / what modules exist"               | `lorewiki tree`                                               |
+| "does the wiki explain how X is implemented?"             | `lorewiki ask "how is X implemented?" --raw`                  |
+| "what modules does the wiki have?"                      | `lorewiki tree --depth 2`                                     |
+| "remember this / save this / take a note about X"       | `lorewiki add --title "X" --body "..."`                       |
+| "store these N pages / scrape this site"                | Drop the dir under the topic, then `lorewiki index`           |
+| "import my entire <some-tool> docs folder"              | `lorewiki topic create <name> --source <docs-folder>`          |
+| "why does this query return no results?"                 | Re-run with `--mode bm25` to inspect scores                   |
