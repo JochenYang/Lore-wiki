@@ -1,6 +1,6 @@
 {
   "name": "lorewiki",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local-first Markdown knowledge base with hybrid retrieval (BM25 + hierarchy + optional LLM) over SQLite FTS5. This is a thin Node.js shim that installs the Python wheel and proxies to it.",
   "keywords": [
     "knowledge-base",

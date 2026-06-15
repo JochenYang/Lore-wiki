@@ -10,6 +10,86 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-06-15
+
+CLI + opencode-skill surface. The REST and MCP server code paths
+are removed in this release — downstream consumers that need
+real-time tool-calling should use the opencode skill
+(`skills/lorewiki/SKILL.md`) over the CLI.
+
+### Added
+- `lorewiki show <doc_path>` — print a single document's body
+  (cleaned by default; `--raw` for on-disk verbatim).
+- `lorewiki tree [prefix]` — Rich-Tree view of the wiki hierarchy
+  with optional depth limit.
+- `lorewiki clean [--dry-run] [--no-backup]` — rewrite on-disk
+  `.md` files to drop scraper boilerplate (anchor markup,
+  blockquote meta, translation footer, internal `.html`).
+- `lorewiki add --title T --body B` — author a single note
+  end-to-end: writes a Markdown file with frontmatter into
+  `<wiki>/<module>/<slug>.md`, then triggers an incremental
+  `build_index` so the new doc is immediately retrievable.
+  Path-traversal protection refuses any `--module` that
+  resolves outside the wiki root.
+- `lorewiki.indexer.cleaning` module: `clean_markdown`, `split_frontmatter`,
+  `clean_markdown_file`, `clean_title`, `clean_heading_path`,
+  `clean_snippet` — the same cleaning rules used at index time
+  are now exposed as a library so `clean` can rewrite disk files.
+- Unified `lorewiki.retriever.search.run_search(cfg, query, *, mode, top_k)`
+  — the dispatch logic that used to be open-coded in the CLI
+  is now a single import.
+- `lorewiki.retriever.vector.VectorRetriever` placeholder that
+  raises `NotImplementedError` on `.search()` — the CLI's
+  `--mode vector` still falls back to `mix` silently.
+- `lorewiki.utils.topic_shared.read_current_topic` (and the
+  shared `CURRENT_FILE` / `USER_CONFIG_DIR` / `USER_TOPICS_ROOT`
+  constants) — single source of truth for the active topic
+  pointer. `lorewiki.config` and `lorewiki.topic` no longer
+  duplicate the read logic.
+- `py.typed` marker (PEP 561) included in the wheel so downstream
+  type checkers see our inline type hints.
+- `lorewiki.config.snippet_chars` default is now `240` (was `0`).
+
+### Changed
+- `lorewiki search` is the canonical READ entry: default output is
+  structured JSON, no `--raw` flag required.
+- Retriever output is post-processed: `title` no longer carries a
+  leading `#`, `heading_path` segments have `[#](#anchor)` markup
+  removed, `snippet` has the leading breadcrumb prefix stripped
+  and the translation footer trimmed.
+- `lorewiki topic show` no longer prints the `name` field twice
+  (regression test added).
+- Runtime `assert cfg.db_path is not None` calls in
+  `indexer` / `BM25Retriever` / `HierarchyRetriever` are now
+  `ValueError`; `assert` is silently stripped under `python -O`.
+
+### Removed (BREAKING)
+- `lorewiki rest` command and the FastAPI REST server module
+  (`lorewiki/server/rest_api.py` and its dependencies in
+  `[rest]` extra). Use the opencode skill or a Python script
+  calling the CLI.
+- `lorewiki mcp` command and the MCP stdio server module
+  (`lorewiki/server/mcp_server.py` and its dependencies in
+  `[mcp]` extra). MCP support is dropped in this release; the
+  CLI is the only programmatic surface.
+- The `lorewiki` and `mcp` keywords from `pyproject.toml` and
+  `package.json`; the package list is now CLI + opencode skill
+  only.
+- The `rest` and `mcp` optional-dependency groups;
+  `pip install lorewiki[all]` now resolves to `[vector]`.
+- The `__pycache__/lorewiki/server/` cache left over from
+  FastAPI / MCP imports.
+
+### Migration
+- If you were using `lorewiki rest` for browser/UI consumption,
+  open the topic's vault directory in Obsidian / Logseq / VS Code
+  directly — the on-disk format is plain Markdown, no lorewiki
+  daemon required.
+- If you were using `lorewiki mcp` from Claude Desktop / Cursor,
+  point the client at the `lorewiki` CLI via the opencode skill
+  (`skills/lorewiki/SKILL.md`). The skill ships trigger keywords
+  the LLM matches against user intent.
+
 ## [0.1.0] — 2026-06-10
 
 Initial open-source release.
