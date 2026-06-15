@@ -29,6 +29,7 @@ Differences from ``skills/install.py``:
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import sys
@@ -120,35 +121,35 @@ TOOLS: Final[tuple[Tool, ...]] = (
     Tool(
         id="opencode",
         label="opencode",
-        primary="$XDG_CONFIG_HOME/opencode/skills/<name>",
+        primary="$XDG_CONFIG_HOME/opencode/skills/<name>/SKILL.md",
     ),
     Tool(
         id="claude",
         label="Claude Code",
-        primary="~/.claude/skills/<name>",
+        primary="~/.claude/skills/<name>/SKILL.md",
     ),
     Tool(
         id="codex",
         label="Codex CLI",
-        primary="$CODEX_HOME/skills/<name>",
+        primary="$CODEX_HOME/skills/<name>/SKILL.md",
     ),
     Tool(
         id="cursor",
         label="Cursor",
-        primary="~/.cursor/skills/<name>",
+        primary="~/.cursor/skills/<name>/SKILL.md",
         # Cursor also auto-discovers ~/.agents/skills/ (interop path).
-        aliases=("~/.agents/skills/<name>",),
+        aliases=("~/.agents/skills/<name>/SKILL.md",),
     ),
     Tool(
         id="gemini",
         label="Gemini CLI",
-        primary="$GEMINI_HOME/skills/<name>",
-        aliases=("~/.agents/skills/<name>",),
+        primary="$GEMINI_HOME/skills/<name>/SKILL.md",
+        aliases=("~/.agents/skills/<name>/SKILL.md",),
     ),
     Tool(
         id="antigravity",
         label="Google Antigravity",
-        primary="~/.gemini/antigravity/skills/<name>",
+        primary="~/.gemini/antigravity/skills/<name>/SKILL.md",
     ),
 )
 
@@ -159,15 +160,15 @@ TOOLS: Final[tuple[Tool, ...]] = (
 
 
 def _parent_exists(path: Path) -> bool:
-    """True if the tool's *config root* exists (two levels above the skill dir).
+    """True if the tool's *config root* exists (three levels above the SKILL.md).
 
-    For ``~/.config/opencode/skills/lorewiki`` we check
+    For ``~/.config/opencode/skills/lorewiki/SKILL.md`` we check
     ``~/.config/opencode/`` — the directory the tool itself creates
     on first launch. Going further up would land on ``$HOME`` /
     ``C:\\`` which always exist and would mark every tool as
     installed.
     """
-    return path.parent.parent.exists()
+    return path.parent.parent.parent.exists()
 
 
 def detect_installed_tools() -> list[Tool]:
@@ -278,6 +279,18 @@ def install_skill(
     ``write_text``. We don't want one locked path to abort the
     rest of the install — we surface the failure as a ``[skip]``
     line and move on.
+
+    The install target is the file ``<root>/<name>/SKILL.md``
+    (not the directory itself). The path templates in :data:`TOOLS`
+    already include the ``/SKILL.md`` suffix. An earlier version
+    of this function wrote to the directory path, which on Windows
+    surfaces as ``PermissionError`` when the dir already exists,
+    and on POSIX silently creates a *file* at the dir path —
+    leaving an orphan single-file ``~/.agents/skills/<name>``
+    (31821 bytes) instead of the expected ``<root>/<name>/SKILL.md``
+    file. The current implementation also cleans up the orphan
+    single-file layout (a file where the dir should be) at the
+    alias path so the new ``mkdir`` doesn't fail.
     """
     if skill_text is None:
         skill_text = _read_skill_template()
@@ -299,6 +312,21 @@ def install_skill(
         alias = tool.resolve(alias_tmpl)
         if alias == primary:
             continue
+        # Clean up the legacy single-file layout (e.g.
+        # ``~/.agents/skills/lorewiki`` as a file, not a dir) so
+        # the new ``mkdir`` doesn't fail because a parent path
+        # component is a file.
+        if alias.parent.exists() and not alias.parent.is_dir():
+            try:
+                alias.parent.unlink()
+                actions.append(
+                    f"[rm]   {alias.parent} (legacy single-file layout)"
+                )
+            except OSError as exc:
+                actions.append(
+                    f"[skip] {alias.parent} (legacy unlink failed: {exc})"
+                )
+                continue
         alias.parent.mkdir(parents=True, exist_ok=True)
         if alias.exists() and not overwrite:
             actions.append(
@@ -322,19 +350,27 @@ def uninstall_skill(tool: Tool) -> list[str]:
     Each target is wrapped in its own ``try/except OSError`` for the
     same reason as :func:`install_skill`: a locked directory or
     read-only mount should not abort the rest of the uninstall.
+
+    Also handles the legacy single-file layout (e.g. an alias at
+    ``~/.agents/skills/<name>`` written as a file by 0.2.5-0.2.9)
+    by unlinking that file too, so ``lorewiki install --uninstall``
+    leaves a clean slate.
     """
     actions: list[str] = []
     for tmpl in (tool.primary, *tool.aliases):
         target = tool.resolve(tmpl)
-        if not (target.exists() or target.is_symlink()):
-            actions.append(f"[skip] {target} (not present)")
-            continue
-        try:
-            target.unlink()
-        except OSError as exc:
-            actions.append(f"[skip] {target} (unlink failed: {exc})")
-        else:
+        if target.exists() or target.is_symlink():
+            try:
+                target.unlink()
+            except OSError as exc:
+                actions.append(f"[skip] {target} (unlink failed: {exc})")
+                continue
             actions.append(f"[rm]   {target}")
+            # Clean up the now-empty parent dir if we can.
+            with contextlib.suppress(OSError):
+                target.parent.rmdir()
+        else:
+            actions.append(f"[skip] {target} (not present)")
     return actions
 
 

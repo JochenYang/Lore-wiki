@@ -10,6 +10,45 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.2] — 2026-06-15
+
+Bug-fix release. ``lorewiki install`` was writing the SKILL.md
+content to the **directory** path (e.g. ``~/.cursor/skills/lorewiki``)
+instead of the **file** path (e.g. ``~/.cursor/skills/lorewiki/SKILL.md``).
+
+- **Linux / POSIX**: ``Path.write_text`` on a non-existent path
+  silently creates a *file* at the dir path, so installs
+  appeared to succeed but left an orphan 31821-byte
+  ``~/.agents/skills/lorewiki`` file instead of the expected
+  ``<root>/<name>/SKILL.md`` inside a directory.
+- **Windows**: ``Path.write_text`` on a path where a directory
+  already exists surfaces as ``[Errno 13] PermissionError``,
+  so every install attempt was reported as ``[skip] (write
+  failed: Permission denied)`` even when the AI agent was not
+  actually locking anything.
+
+The user-visible symptom: a fresh ``lorewiki install --all
+--force`` could write the alias at the wrong path (a file
+instead of a file-in-dir), and never updated the 5 primary
+paths (the error message blamed the running agent when the
+real cause was the wrong target path).
+
+### Fixed
+- ``lorewiki/utils/skill_installer.py``: ``TOOLS`` path templates
+  now include the ``/SKILL.md`` suffix; ``_parent_exists``
+  walks 3 levels up to find the tool config root; ``install_skill``
+  cleans up the legacy single-file layout at the alias path
+  before re-creating it as a directory; ``uninstall_skill``
+  removes the now-empty parent dir when the file is gone.
+- ``lorewiki/utils/skill_installer.py``: ``contextlib.suppress``
+  instead of ``try/except/pass`` (ruff SIM105).
+
+### Verified
+- ``lorewiki install --all --force`` after this release
+  overwrites all 7 primary + alias paths in place, even
+  with the AI agent running.
+- 326 tests pass, ruff clean.
+
 ## [0.3.1] — 2026-06-15
 
 Patch release. Tightens the LLM agent skill so users never get
