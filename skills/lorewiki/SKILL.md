@@ -1,6 +1,6 @@
 ﻿---
 name: lorewiki
-description: "Local-first Markdown knowledge base with hybrid retrieval (SQLite FTS5 trigram tokenizer + heading hierarchy + RRF fusion) and optional LLM answer generation (Ollama or OpenAI-compatible). Use when the user wants to search, ask, browse, or write to a documentation wiki; persist a learning, decision, or postmortem into a queryable store; or when they say 'wiki', 'knowledge base', '知识库', '查文档', '查 API', '查 wiki', 'lorewiki', 'internal docs', 'runbook', 'postmortem', 'team docs'. Two wiki-addressing modes: (1) global topic under ~/lorewiki/topics/<name>/ (recommended, set once via `lorewiki topic use <name>`), (2) per-project via `lorewiki --path <wiki_root>` for ad-hoc queries — always prefer the active topic and only fall back to --path when the user explicitly names a project directory. CLI is one shell call per command with JSON output by default for `search`/`show`/`tree`; no daemon, no MCP client config, no server to keep alive."
+description: "Local-first Markdown knowledge base with hybrid retrieval (BM25 + heading-hierarchy + RRF) and optional LLM answer generation. Use when the user wants to look something up in an internal wiki, ask a question grounded in their team docs, browse the hierarchy of stored notes, or persist a learning / decision / postmortem into a queryable store. Triggers on the natural-language intent to recall or save knowledge — the LLM should match by meaning, not by exact keyword. CLI is one shell call per command with JSON output by default for `search` / `show` / `tree`."
 ---
 
 # lorewiki
@@ -43,11 +43,11 @@ Invoke this skill whenever the user wants to:
 - **Inspect** — `lorewiki status` shows chunk / doc / last-indexed
   counts; `lorewiki topic list` enumerates topics.
 
-Trigger words: `wiki`, `knowledge base`, `知识库` (knowledge base),
-`查文档` (look up docs), `查 wiki` (look up wiki), `查 API`
-(look up API), `lorewiki`, `internal docs`, `runbook`, `postmortem`,
-`team docs`, `记住这个` (remember this), `存一下` (save this),
-`记笔记` (take a note).
+Trigger words: `wiki`, `knowledge base`, `lorewiki`, `internal docs`,
+`runbook`, `postmortem`, `team docs` — and the obvious
+language-localised equivalents in whatever language the user is
+using. The LLM should match by *intent* (recall / save a note /
+browse the structure), not by exact keyword match.
 
 ## Prerequisites
 
@@ -429,12 +429,14 @@ smallest one that does the job — over-engineering hurts:
 |                                                            | `lorewiki index` once at the end.                                                             |
 | **Topic bootstrap** (creating a new isolated vault)         | `lorewiki topic create <name> [--source <path>]` — the topic system is built for this.        |
 
-**Auto-judgment rule for the LLM**: if the user pasted a paragraph
-or said "记住这个 / 存一下 / 记一下", reach for `lorewiki add`. If the
-user gave you a list / a URL / a directory / said "把所有这些都
-存进去", reach for a Python script (or `lorewiki topic create --source`).
-Don't run `lorewiki add` in a 50-iteration loop — the per-invocation
-indexing cost adds up.
+**Auto-judgment rule for the LLM**: if the user pasted a single
+short note, reach for `lorewiki add`. If the user gave you a list,
+a URL, or a directory to capture, reach for a Python script (or
+`lorewiki topic create --source`). Don't run `lorewiki add` in a
+50-iteration loop — the per-invocation indexing cost adds up. The
+user's language for "store this" / "capture these" / "记一下" /
+"保存这些" / "メモして" / whatever is irrelevant to the rule; the
+trigger is *shape* (paragraph vs list/URL/directory), not language.
 
 #### `lorewiki add` quick reference
 
@@ -473,12 +475,12 @@ root.
 
 The slug is built with `[^a-z0-9]+` → `-`, lowercased, trimmed, then
 capped at 64 chars. **Non-ASCII characters in the title are
-stripped**, so the slug of "RISC-V 工具链" is just `risc-v` (the
-"工具链" is gone). For better slugs on Chinese titles, the user
-should pick an English title (or include the Chinese in `--body`
-and let the title be a short English handle). Same caveat for
-Vietnamese, Thai, Korean, etc. — the body keeps everything, the
-filename is the only thing that gets ASCII-folded.
+stripped** — so a title like "RISC-V 工具链" produces the slug
+`risc-v` (the CJK portion is gone). The body keeps everything;
+only the filename is ASCII-folded. This affects every non-ASCII
+script uniformly (CJK, Vietnamese, Thai, Korean, Cyrillic, etc.).
+For better filename preservation, the user should pick an
+English title and put the original-language text in `--body`.
 
 ## Modes (`--mode` flag for search / configured for ask)
 
