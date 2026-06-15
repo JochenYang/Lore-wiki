@@ -25,15 +25,31 @@ log = get_logger(__name__)
 
 
 def _force_utf8_streams() -> None:
-    """Force UTF-8 on stdout/stderr at import time.
+    """Force UTF-8 on stdin/stdout/stderr at import time.
 
-    Without this, ``--raw`` JSON containing CJK characters becomes
-    mojibake on Windows shells whose default code page is GBK
-    (cp936). Python 3.7+ exposes ``TextIOWrapper.reconfigure``; we
-    guard with ``hasattr`` so that non-standard stdouts captured by
-    tests don't crash the CLI.
+    Windows Python 3.6+ sets the default encoding for a redirected
+    (piped) stdin to the console code page — historically cp936
+    (GBK) in zh_CN locales, cp1252 in en_US. If we left it alone,
+    a command like::
+
+        PS> echo "幂等设计" | lorewiki add --title "X" --module m
+
+    would feed GBK-encoded bytes into the child Python's stdin,
+    which would then re-encode them as UTF-8 and write mojibake
+    into the resulting Markdown file (the ``骞傜瓑璁捐…``
+    rot observed in early 0.2.7 smoke tests). We reconfigure all
+    three streams to UTF-8 with errors='replace' so the bytes the
+    child sees are the bytes the parent intended.
+
+    stdout/stderr are also reconfigured — without this, ``--raw``
+    JSON dumps containing CJK would mojibake on a cp936 terminal.
+    The change is a no-op on POSIX (utf-8 is already the default).
+
+    Python 3.7+ exposes ``TextIOWrapper.reconfigure``; we guard
+    with ``hasattr`` so non-standard streams captured by tests
+    don't crash the import.
     """
-    for stream in (sys.stdout, sys.stderr):
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             with contextlib.suppress(OSError, ValueError):
                 stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]

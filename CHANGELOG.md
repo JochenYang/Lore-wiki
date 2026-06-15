@@ -10,6 +10,74 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.8] — 2026-06-15
+
+Final cross-platform encoding fix. 0.2.7 closed the *output*
+side of the CJK story (``--raw`` JSON, ``show`` body) by
+reconfiguring stdout / stderr to UTF-8, and closed the
+*detection* side of the CJK story (``XDG_CONFIG_HOME`` /
+``CODEX_HOME`` / ``GEMINI_HOME`` env-var expansion). But on
+**Windows + PowerShell**, piping a CJK string into ``lorewiki
+add`` via stdin still produced mojibake on disk: a child
+Python process started with redirected stdin inherits the
+*parent*'s console code page (cp936 / GBK on zh_CN Windows)
+as stdin encoding, while the same Python reconfigures
+stdout / stderr to UTF-8 at import. The 0.2.7 wheel's
+``apps._force_utf8_streams`` only reconfigured the output
+streams, not stdin. The result was that the bytes read from
+stdin were GBK-encoded, the body was written to disk as
+mojibake (the ``骞傜瓑璁捐…`` rot observed in 0.2.7 smoke
+tests on Windows), and the SQLite FTS5 index contained the
+mojibake — so even after a successful ingest, downstream
+``search`` calls against the literal CJK string returned 0
+hits. 0.2.8 fixes stdin too.
+
+### Fixed
+- ``lorewiki/cli/apps.py``: ``_force_utf8_streams`` now also
+  reconfigures ``sys.stdin`` to UTF-8 with ``errors='replace'``,
+  in addition to stdout / stderr. With this, piping a UTF-8
+  CJK body from any sensible parent (PowerShell 7+, bash,
+  zsh, any *nix shell) results in a correctly-encoded
+  ``.md`` file on disk and a queryable FTS5 index.
+
+### Tests
+- ``tests/test_cli_utf8_output.py``: new
+  ``test_add_via_stdin_preserves_cjk_utf8_bytes`` regression
+  that spawns a child Python with ``PYTHONIOENCODING=utf-8``
+  and UTF-8 CJK bytes on stdin, then asserts the resulting
+  ``.md`` file contains the literal CJK string and that
+  ``search`` against a literal CJK term returns a hit. This
+  is the regression that 0.2.7 missed: without the stdin
+  reconfig, the test fails because the body is mojibake'd
+  and the FTS5 index contains the mojibake.
+- ``tests/test_cli_utf8_output.py``: three new real-corpus
+  smoke tests (``test_real_corpus_search_wx_login`` /
+  ``test_real_corpus_search_cjk_2char`` /
+  ``test_real_corpus_status_reports_doc_count``) that hit
+  the developer's ``~/.lorewiki/topics/wechat-miniprogram-api``
+  topic (1468 docs, 1902 chunks) and skip silently when the
+  corpus is not on disk. These run on the developer's own
+  machine, not on a fresh CI runner, so they don't add to
+  CI flakiness but do confirm that the wheel-built CLI works
+  against a real-world CJK-heavy knowledge base.
+
+### Known limitations (not lorewiki bugs)
+- PowerShell 5.1's ``echo`` writes a UTF-16-LE BOM + wide
+  chars to a redirected pipe. A Python child reading such
+  bytes via stdin will see ``lone surrogates`` (the
+  0.2.2-era bug); ``add.py``'s ``_strip_surrogates``
+  replaces them with U+FFFD, so the file is at least not
+  mojibake. To get a fully clean pipe on Windows, use
+  PowerShell 7+ (``$OutputEncoding = UTF-8``) or ``cmd.exe``
+  with ``chcp 65001``.
+- ``Rich.Console(legacy_windows=True)`` (the default on
+  Windows) writes through ``WriteConsoleW`` and can in some
+  edge cases appear to truncate the last CJK character of
+  a line. ``print()`` and ``sys.stdout.buffer.write()`` are
+  unaffected. The lorewiki CLI's own output is fine; the
+  truncation is a Rich-on-Windows-terminal quirk, not a
+  lorewiki bug.
+
 ## [0.2.7] — 2026-06-15
 
 Cross-platform fix. 0.2.6's ``Tool.resolve`` relied solely on
