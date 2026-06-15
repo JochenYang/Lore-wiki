@@ -10,6 +10,32 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.6] — 2026-06-15
+
+Bug-fix release. 0.2.5's ``Publish to PyPI`` workflow failed on
+Linux CI because the source-tree ``skills/install.py`` and the
+new ``lorewiki/utils/skill_installer.py`` both built the ``TOOLS``
+tuple with ``os.environ.get("XDG_CONFIG_HOME", ...)`` evaluated at
+module-import time, freezing the env value before the tests'
+``monkeypatch.setenv`` could take effect. On Linux CI the
+default ``/home/runner/.config/opencode/`` happens to exist, so
+``detect_installed_tools()`` returned a non-empty list even
+when the test expected an empty one. The wheel-side test
+``test_cli_install.py::test_detect_finds_explicit_config_root``
+failed the same way. The fix is to keep the path templates as
+raw strings with ``$VAR`` placeholders and let ``Tool.resolve``
+run ``os.path.expandvars`` on every call, so the env is read
+fresh at resolve time.
+
+### Fixed
+- ``lorewiki/utils/skill_installer.py`` and ``skills/install.py``:
+  ``TOOLS`` entries now use raw ``$XDG_CONFIG_HOME`` / ``$CODEX_HOME``
+  / ``$GEMINI_HOME`` placeholders instead of
+  ``os.environ.get(...).expanduser()`` evaluated at import time.
+  ``Tool.resolve`` already runs ``os.path.expandvars`` on every call,
+  so the runtime behaviour is unchanged — the only difference is
+  that the env is read fresh rather than frozen at import.
+
 ## [0.2.5] — 2026-06-15
 
 PyPI users can now install the agent skill without cloning the

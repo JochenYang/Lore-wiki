@@ -91,12 +91,19 @@ class Tool:
 
 
 # Tool catalog. Add new tools here; the installer auto-discovers them.
+#
+# ``primary`` is kept as a *raw* path template with ``$VAR`` placeholders
+# rather than ``os.path.expandvars(os.environ.get(...))`` evaluated at
+# module-import time. ``Tool.resolve`` runs ``os.path.expandvars`` on
+# every call, so the env is read fresh — important for tests that
+# monkey-patch ``XDG_CONFIG_HOME`` *after* this module is imported
+# (and for runners that have a non-default env we want to honour
+# *now*, not at import time).
 TOOLS: tuple[Tool, ...] = (
     Tool(
         id="opencode",
         label="opencode",
-        primary=os.environ.get("XDG_CONFIG_HOME", "~/.config")
-        + "/opencode/skills/<name>",
+        primary="$XDG_CONFIG_HOME/opencode/skills/<name>",
     ),
     Tool(
         id="claude",
@@ -106,7 +113,7 @@ TOOLS: tuple[Tool, ...] = (
     Tool(
         id="codex",
         label="Codex CLI",
-        primary=os.environ.get("CODEX_HOME", "~/.codex") + "/skills/<name>",
+        primary="$CODEX_HOME/skills/<name>",
     ),
     Tool(
         id="cursor",
@@ -119,7 +126,7 @@ TOOLS: tuple[Tool, ...] = (
     Tool(
         id="gemini",
         label="Gemini CLI",
-        primary=os.environ.get("GEMINI_HOME", "~/.gemini") + "/skills/<name>",
+        primary="$GEMINI_HOME/skills/<name>",
         aliases=("~/.agents/skills/<name>",),
     ),
     Tool(
