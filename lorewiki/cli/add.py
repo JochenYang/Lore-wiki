@@ -88,6 +88,14 @@ def _read_body(body: str | None, file: Path | None) -> str:
     Priority: ``--body`` → ``--file`` → ``sys.stdin`` (if not a TTY).
     Returns the body text with a single trailing newline so the
     frontmatter/body separator renders cleanly.
+
+    stdin content goes through :func:`_strip_surrogates` because
+    Windows PowerShell pipes strings as UTF-16 LE, which Python's
+    stdin reader can surface as **lone** surrogate codepoints
+    (U+D800..U+DFFF). UTF-8 cannot encode lone surrogates, so
+    leaving them in would crash the downstream ``write_text(..., 'utf-8')``
+    call with ``UnicodeEncodeError``. ``--body`` and ``--file`` paths
+    are already valid str (no surrogates), so they skip the scrub.
     """
     if body is not None and body.strip():
         return body.rstrip() + "\n"
@@ -102,6 +110,22 @@ def _read_body(body: str | None, file: Path | None) -> str:
         "(stdin is only read when not a TTY)"
     )
     raise typer.BadParameter(msg)
+
+
+# Lone-surrogate scrub. See the docstring of ``_read_body`` for why
+# this is needed. Python 3.10 has no ``str.remove_surrogates()``
+# (that helper landed in 3.11), so we do the regex replacement
+# ourselves.
+_SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
+
+
+def _strip_surrogates(text: str) -> str:
+    """Replace every lone UTF-16 surrogate codepoint with U+FFFD.
+
+    Used by :func:`_read_body` on the stdin path. Idempotent: running
+    it twice produces the same output as running it once.
+    """
+    return _SURROGATE_RE.sub("\ufffd", text)
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +252,12 @@ def add(
     """
     # ---- 1. body & title ----------------------------------------------------
     raw_body = _read_body(body, file)
+    # Scrub lone UTF-16 surrogates that may have entered through any
+    # path (stdin on Windows + PowerShell is the common case, but a
+    # buggy ``--body`` from a script that decoded UTF-16 LE with the
+    # wrong codec would hit the same problem). Idempotent — safe to
+    # run on bodies that are already clean.
+    raw_body = _strip_surrogates(raw_body)
     final_title = title.strip() or _extract_h1(raw_body) or slugify(raw_body[:64])
 
     # ---- 2. resolve paths ---------------------------------------------------
@@ -274,9 +304,15 @@ def add(
     target_dir.mkdir(parents=True, exist_ok=True)
     try:
         target_path.write_text(frontmatter.dumps(post) + "\n", encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeEncodeError) as exc:
+        # ``UnicodeEncodeError`` is NOT a subclass of ``OSError``, so
+        # the original ``except OSError`` silently let it through and
+        # left a 0-byte file on disk. Belt-and-braces: clean up so a
+        # subsequent ``add`` invocation doesn't trip the
+        # "target exists" check against an empty file.
         log.error("write failed {}: {}", target_path, exc)
         console.print(f"[red]write failed:[/red] {exc}")
+        target_path.unlink(missing_ok=True)
         raise typer.Exit(code=5) from exc
 
     # ---- 6. re-index --------------------------------------------------------

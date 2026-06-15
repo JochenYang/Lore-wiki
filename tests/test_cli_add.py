@@ -127,6 +127,87 @@ def test_cli_add_reads_body_from_stdin(fresh_wiki: Path) -> None:
     assert "title:" in text
 
 
+def test_cli_add_strips_surrogates_from_stdin(fresh_wiki: Path) -> None:
+    """Regression for 0.2.1: Windows PowerShell pipes strings as UTF-16
+    LE, and Python's stdin reader can surface those bytes as **lone**
+    surrogate codepoints (U+D800..U+DFFF). UTF-8 cannot encode lone
+    surrogates, so before this fix the subprocess crashed with
+    ``UnicodeEncodeError: surrogates not allowed`` and left a 0-byte
+    file on disk. The fix: ``_read_body`` scrubs the stdin stream via
+    ``_strip_surrogates`` before passing the body to ``frontmatter``.
+
+    We test two layers:
+
+    1. **Unit**: ``_strip_surrogates`` does the right thing on the
+       pathological codepoint range (lone high, lone low, mixed with
+       real CJK).
+    2. **End-to-end**: ``add`` with a ``--body`` that contains lone
+       surrogates writes the file successfully (no UnicodeEncodeError,
+       no 0-byte garbage on disk) and the surrogates are replaced with
+       U+FFFD in the output.
+
+    The actual PowerShell-pipe round-trip is Windows-specific; the
+    CliRunner path exercises the same ``_strip_surrogates`` →
+    ``frontmatter.dumps`` → ``write_text('utf-8')`` code path without
+    needing a real PowerShell.
+    """
+    from lorewiki.cli.add import _strip_surrogates  # noqa: PLC0415
+
+    # ---- 1. unit: _strip_surrogates --------------------------------------
+    # Lone high + lone low individually.
+    assert _strip_surrogates("\ud83d") == "\ufffd"
+    assert _strip_surrogates("\ude00") == "\ufffd"
+    # Mixed: real CJK + surrogate pair (the realistic case).
+    assert _strip_surrogates("幂等 \ud83d\ude00 一切") == "幂等 \ufffd\ufffd 一切"
+    # Idempotence: running twice == running once.
+    once = _strip_surrogates("幂等 \ud83d\ude00 一切")
+    twice = _strip_surrogates(once)
+    assert once == twice
+    # No-surrogate input is a no-op.
+    assert _strip_surrogates("幂等 一切") == "幂等 一切"
+
+    # ---- 2. end-to-end: add --body with lone surrogates ------------------
+    body = "# Surrogate Note\n\n幂等设计 \ud83d\ude00 一切正常。\n"
+    # sanity: confirm our test fixture actually contains a lone
+    # surrogate pair, otherwise the test is meaningless.
+    assert any(0xD800 <= ord(ch) <= 0xDFFF for ch in body)
+
+    result = runner.invoke(
+        app,
+        [
+            "add",
+            "--title",
+            "Surrogate Note",
+            "--module",
+            "notes",
+            "--body",
+            body,
+            "--path",
+            str(fresh_wiki),
+        ],
+    )
+    assert result.exit_code == 0, (
+        f"add with surrogate body crashed (rc={result.exit_code}): "
+        f"stdout={result.stdout!r}"
+    )
+    target = fresh_wiki / "notes" / "surrogate-note.md"
+    assert target.exists()
+    size = target.stat().st_size
+    assert size > 0, "0-byte file left behind — write cleanup regression"
+    text = target.read_text(encoding="utf-8")
+    # The real (CJK) characters must survive untouched.
+    assert "幂等设计" in text
+    assert "一切正常" in text
+    # The lone surrogate must be replaced with U+FFFD, not silently
+    # dropped (so the user knows the original character didn't make it).
+    assert "\ufffd" in text
+    # And of course the original surrogate codepoints must NOT be in
+    # the file (they are illegal UTF-8 and ``read_text('utf-8')``
+    # would crash on them anyway).
+    assert "\ud83d" not in text
+    assert "\ude00" not in text
+
+
 # ---------------------------------------------------------------------------
 # 3. Conflict detection
 # ---------------------------------------------------------------------------

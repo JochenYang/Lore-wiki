@@ -10,6 +10,42 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.2] — 2026-06-15
+
+Bug-fix release. 0.2.1 shipped the `lorewiki add` command, but
+on Windows + PowerShell piping a CJK body into stdin crashed
+with `UnicodeEncodeError: surrogates not allowed` and left a
+0-byte file on disk. No data loss (the write was atomic at the
+file level), but the empty file then tripped the "target
+exists" check on every retry. 0.2.2 fixes both the crash and
+the leftover-file footgun.
+
+### Fixed
+- `lorewiki/cli/add.py`: scrub lone UTF-16 surrogate codepoints
+  (U+D800..U+DFFF) out of the body before it reaches
+  `frontmatter.dumps()` and `write_text(..., 'utf-8')`. Windows
+  PowerShell pipes strings as UTF-16 LE; the child Python
+  surface them as lone surrogates that UTF-8 cannot encode.
+  Surrogates are replaced with U+FFFD (the official replacement
+  character) so the user knows the original character didn't
+  make it, instead of failing silently.
+- `lorewiki/cli/add.py`: widen the `try / except OSError` around
+  the write to also catch `UnicodeEncodeError` (it is NOT a
+  subclass of `OSError`, so the original except let it through).
+  On any write failure, `target_path.unlink(missing_ok=True)`
+  cleans up the partial file so a subsequent `add` doesn't trip
+  the "target exists" check against an empty file.
+
+### Tests
+- `tests/test_cli_add.py::test_cli_add_strips_surrogates_from_stdin`:
+  regression covering both the unit-level `_strip_surrogates`
+  helper and the end-to-end `add --body` path with a body that
+  contains lone surrogates mixed with CJK. The actual
+  PowerShell-pipe round-trip is Windows-specific and intentionally
+  left to manual smoke; the CliRunner path exercises the same
+  `_strip_surrogates` → `frontmatter.dumps` → `write_text('utf-8')`
+  code path.
+
 ## [0.2.1] — 2026-06-15
 
 CI-fix release. The 0.2.0 tag triggered a successful test run
