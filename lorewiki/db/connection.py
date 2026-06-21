@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from importlib import resources
 from pathlib import Path
 
@@ -21,12 +21,17 @@ from lorewiki.utils.logger import get_logger
 log = get_logger(__name__)
 
 SCHEMA_RESOURCE = ("lorewiki.db", "schema.sql")
+_SCHEMA_CACHE: dict[str, str] = {}
+_CONNECTION_CACHE: dict[Path, sqlite3.Connection] = {}
 
 
 def _load_schema_sql() -> str:
     """Read the bundled schema.sql via importlib.resources (works after install)."""
+    if "sql" in _SCHEMA_CACHE:
+        return _SCHEMA_CACHE["sql"]
     package, name = SCHEMA_RESOURCE
-    return resources.files(package).joinpath(name).read_text(encoding="utf-8")
+    _SCHEMA_CACHE["sql"] = resources.files(package).joinpath(name).read_text(encoding="utf-8")
+    return _SCHEMA_CACHE["sql"]
 
 
 def _apply_pragmas(conn: sqlite3.Connection) -> None:
@@ -67,9 +72,30 @@ def init_db(db_path: Path) -> None:
     log.debug("initialised db at {}", db_path)
 
 
+def _get_connection(db_path: Path) -> sqlite3.Connection:
+    """Get or create a cached connection to the database."""
+    if db_path in _CONNECTION_CACHE:
+        return _CONNECTION_CACHE[db_path]
+    conn = sqlite3.connect(db_path)
+    _apply_pragmas(conn)
+    _CONNECTION_CACHE[db_path] = conn
+    return conn
+
+
+def close_all_connections() -> None:
+    """Close all cached connections. Call at process exit."""
+    for conn in _CONNECTION_CACHE.values():
+        with suppress(Exception):
+            conn.close()
+    _CONNECTION_CACHE.clear()
+
+
 @contextmanager
 def open_db(db_path: Path, *, auto_init: bool = True) -> Iterator[sqlite3.Connection]:
     """Open a connection to ``db_path``, optionally running the schema first.
+
+    Uses connection caching to avoid repeated connection overhead.
+    Schema initialization is only performed on first access.
 
     Usage::
 
@@ -78,12 +104,12 @@ def open_db(db_path: Path, *, auto_init: bool = True) -> Iterator[sqlite3.Connec
     """
     if auto_init:
         init_db(db_path)
-    conn = sqlite3.connect(db_path)
-    _apply_pragmas(conn)
+    conn = _get_connection(db_path)
     try:
         yield conn
     finally:
-        conn.close()
+        # Don't close - keep in cache for reuse
+        pass
 
 
 def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
@@ -117,6 +143,7 @@ def schema_version(conn: sqlite3.Connection) -> int:
 
 
 __all__ = [
+    "close_all_connections",
     "get_meta",
     "init_db",
     "open_db",
