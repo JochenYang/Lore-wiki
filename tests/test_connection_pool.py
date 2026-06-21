@@ -1,6 +1,5 @@
 """Tests for connection pooling and schema caching."""
 
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -39,7 +38,7 @@ def test_connection_is_cached(tmp_path: Path):
 
 def test_close_all_connections(tmp_path: Path):
     db_path = tmp_path / "test.db"
-    with open_db(db_path) as conn:
+    with open_db(db_path):
         pass
     assert db_path in conn_mod._CONNECTION_CACHE
     close_all_connections()

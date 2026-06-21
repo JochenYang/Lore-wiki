@@ -25,7 +25,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from lorewiki.indexer.patterns import H1_RE, H2_RE, CODE_FENCE_RE
+from lorewiki.indexer.patterns import CODE_FENCE_RE, H1_RE, H2_RE
 
 
 @dataclass(slots=True)

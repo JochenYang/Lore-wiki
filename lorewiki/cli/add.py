@@ -28,6 +28,7 @@ from rich.panel import Panel
 from lorewiki.cli.apps import app, console, log
 from lorewiki.cli.helpers import resolve_config
 from lorewiki.indexer import build_index
+from lorewiki.indexer.patterns import H1_RE
 
 # ---------------------------------------------------------------------------
 # Slug + path safety helpers
@@ -131,8 +132,6 @@ def _strip_surrogates(text: str) -> str:
 # ---------------------------------------------------------------------------
 # Title inference
 # ---------------------------------------------------------------------------
-
-from lorewiki.indexer.patterns import H1_RE
 
 
 def _extract_h1(body: str) -> str | None:
