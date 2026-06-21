@@ -42,12 +42,15 @@ class Chunk:
         return f"[{self.heading_path}]\n\n{self.body}"
 
 
+_ASCII_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
+
+
 def estimate_tokens(text: str) -> int:
     """Heuristic token count: CJK chars + whitespace-separated words."""
     if not text:
         return 0
     cjk = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
-    ascii_runs = re.findall(r"[A-Za-z0-9_]+", text)
+    ascii_runs = _ASCII_TOKEN_RE.findall(text)
     return cjk + len(ascii_runs)
 
 
