@@ -173,6 +173,7 @@ def build_index(cfg: LoreWikiConfig, *, rebuild: bool = False) -> IndexerStats:
         # untouched; we keep an untouched copy of the parsed doc for
         # re-export (``lorewiki show``) use.
         cleaned_body = cleaning.clean_markdown(parsed.body)
+        cleaned_bodies[parsed.path] = cleaned_body
         chunks = chunk_markdown(
             title=cleaning.clean_title(parsed.title),
             body=cleaned_body,
@@ -226,7 +227,7 @@ def build_index(cfg: LoreWikiConfig, *, rebuild: bool = False) -> IndexerStats:
 
         # Hierarchy is fully rebuilt each run: cheap, always consistent.
         conn.execute("DELETE FROM hierarchy")
-        nodes = _build_hierarchy_nodes(parsed_docs)
+        nodes = _build_hierarchy_nodes(parsed_docs, cleaned_bodies)
         conn.executemany(
             """
             INSERT INTO hierarchy
