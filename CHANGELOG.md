@@ -4,6 +4,13 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] — 2026-06-21
+
+Hotfix release to correct `__version__` string in package metadata.
+
+### Fixed
+- Updated `__version__` in `lorewiki/__init__.py` to match pyproject.toml.
+
 ## [0.4.0] — 2026-06-21
 
 Performance and code quality release. Significant optimizations for indexing speed, search latency, and code maintainability.
