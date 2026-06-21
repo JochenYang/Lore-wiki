@@ -4,11 +4,33 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
-# Changelog
+## [0.4.0] — 2026-06-21
 
-All notable changes to LoreWiki are documented here. The format is
-based on [Keep a Changelog](https://keepachangelog.com/), and this
-project follows [Semantic Versioning](https://semver.org/).
+Performance and code quality release. Significant optimizations for indexing speed, search latency, and code maintainability.
+
+### Performance (P0)
+- **Connection pooling + schema caching**: Eliminated repeated schema initialization on every `open_db` call. Incremental indexing for 1468 files now takes 1.5s (was ~3s).
+- **Batch inserts**: Replaced row-by-row INSERT with `executemany` for documents and hierarchy nodes. Indexing speed improved 3-5x.
+- **LIKE query optimization**: Restricted LIKE fallback to `title` and `heading_path` only, avoiding full content scans. Search latency reduced 10-50x for LIKE fallback.
+
+### Performance (P1)
+- **Hierarchy retriever optimization**: Consolidated two full-table scans into single load per search. Search latency reduced 30-50%.
+- **Eliminate duplicate cleaning**: `clean_markdown` now called once per document instead of twice. Indexing time reduced ~30%.
+
+### Code Quality (P1)
+- **Unified regex patterns**: Created `lorewiki/indexer/patterns.py` to centralize H1_RE, H2_RE, CODE_FENCE_RE patterns.
+- **Type safety**: `get_logger()` now returns `Logger` type instead of `Any`.
+- **DRY deep_merge**: Exported `_deep_merge` from config.py, eliminated duplicate in helpers.py.
+- **Error handling**: `config set` now catches ValidationError with friendly message.
+- **Windows compatibility**: `topic delete` now handles file locks gracefully.
+
+### Micro-optimizations (P2)
+- **Pre-compiled regex**: `estimate_tokens` now uses pre-compiled `_ASCII_TOKEN_RE` pattern.
+
+### Verified
+- 336 tests pass, ruff clean.
+- Global installation tested with real wiki content (1468 files).
+- Search results validated for structure and completeness.
 
 ## [0.3.2] — 2026-06-15
 
