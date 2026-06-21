@@ -16,9 +16,12 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Any
+from typing import TYPE_CHECKING
 
 from loguru import logger as _logger
+
+if TYPE_CHECKING:
+    from loguru import Logger
 
 # Use a mutable container to track "already configured" state instead of a
 # module-level ``global`` variable (ruff PLW0603). This keeps the helper
@@ -70,7 +73,7 @@ def reset_for_tests() -> None:
     _logger.remove()
 
 
-def get_logger(name: str | None = None) -> Any:
+def get_logger(name: str | None = None) -> Logger:
     """Return a loguru logger bound to ``name`` (defaults to caller module)."""
     _configure()
     if name:
