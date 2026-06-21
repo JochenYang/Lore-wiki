@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from pydantic import ValidationError
 from rich.table import Table
 
 from lorewiki.cli.apps import config_app, console
@@ -84,7 +85,11 @@ def config_set(
     # Merge with whatever already lives in the project config file.
     existing = safe_load_toml(target) if target.exists() else {}
     merged = deep_merge(existing, nested)
-    new_cfg = LoreWikiConfig(**merged)
+    try:
+        new_cfg = LoreWikiConfig(**merged)
+    except ValidationError as exc:
+        console.print(f"[red]invalid configuration:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
     save_config(new_cfg, target)
     console.print(f"[green]set[/green] {key} = {parsed_value!r}  ->  {target}")
 
