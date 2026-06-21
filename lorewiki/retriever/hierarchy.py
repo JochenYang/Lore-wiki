@@ -61,19 +61,23 @@ class HierarchyRetriever(BaseRetriever):
             return []
 
         with open_db(self.db_path, auto_init=False) as conn:
-            nodes = self._score_nodes(conn, terms)
+            # Load all hierarchy nodes once for both scoring and chunk expansion
+            all_hierarchy = conn.execute(
+                "SELECT id, parent_id, node_type, title, summary, path, level, doc_id "
+                "FROM hierarchy"
+            ).fetchall()
+
+            nodes = self._score_nodes(all_hierarchy, terms)
             if not nodes:
                 return []
-            # Top-N nodes feed into chunk expansion; we then trim chunks
-            # to ``top_k`` in the final sort.
-            chunks = self._chunks_for_nodes(conn, nodes, top_k=top_k * 3)
+            chunks = self._chunks_for_nodes(conn, all_hierarchy, nodes, top_k=top_k * 3)
 
         return self._merge_and_rank(chunks, nodes, top_k=top_k)
 
     # ---- internal ----
 
     def _score_nodes(
-        self, conn: sqlite3.Connection, terms: list[str]
+        self, all_hierarchy: list[sqlite3.Row], terms: list[str]
     ) -> list[tuple[float, sqlite3.Row]]:
         """Return ``[(score, row)]`` for every hierarchy row hit by any term.
 
@@ -85,10 +89,7 @@ class HierarchyRetriever(BaseRetriever):
         first" prior. We skip the synthetic root node (level 0) because it
         owns every document and would dominate every search.
         """
-        rows = conn.execute(
-            "SELECT id, parent_id, node_type, title, summary, path, level, doc_id "
-            "FROM hierarchy WHERE level > 0"
-        ).fetchall()
+        rows = [r for r in all_hierarchy if r["level"] > 0]
 
         scored: list[tuple[float, sqlite3.Row]] = []
         lowered_terms = [t.lower() for t in terms]
@@ -118,6 +119,7 @@ class HierarchyRetriever(BaseRetriever):
     def _chunks_for_nodes(
         self,
         conn: sqlite3.Connection,
+        all_hierarchy: list[sqlite3.Row],
         scored_nodes: list[tuple[float, sqlite3.Row]],
         *,
         top_k: int,
@@ -127,11 +129,8 @@ class HierarchyRetriever(BaseRetriever):
         Returns ``[(node_score, chunk_row, source_node_id)]`` lists.
         """
         # Build a parent → children map so we can DFS without recursive SQL.
-        all_nodes = conn.execute(
-            "SELECT id, parent_id, doc_id FROM hierarchy"
-        ).fetchall()
         children: dict[str | None, list[sqlite3.Row]] = {}
-        for n in all_nodes:
+        for n in all_hierarchy:
             children.setdefault(n["parent_id"], []).append(n)
 
         out: list[tuple[float, sqlite3.Row, str]] = []
