@@ -71,7 +71,10 @@ def _chunk_to_row(parsed: ParsedDocument, chunk: Chunk) -> DocumentChunk:
     )
 
 
-def _build_hierarchy_nodes(parsed_docs: list[ParsedDocument]) -> list[HierarchyNode]:
+def _build_hierarchy_nodes(
+    parsed_docs: list[ParsedDocument],
+    cleaned_bodies: dict[str, str],
+) -> list[HierarchyNode]:
     """Construct hierarchy nodes for every directory and every document.
 
     A path ``api/user/auth.md`` produces nodes:
@@ -103,7 +106,7 @@ def _build_hierarchy_nodes(parsed_docs: list[ParsedDocument]) -> list[HierarchyN
     for parsed in parsed_docs:
         parts = parsed.path.split("/")
         accumulated: list[str] = []
-        cleaned_body = cleaning.clean_markdown(parsed.body)
+        cleaned_body = cleaned_bodies.get(parsed.path, cleaning.clean_markdown(parsed.body))
         cleaned_title = cleaning.clean_title(parsed.title)
         for level, part in enumerate(parts, start=1):
             accumulated.append(part)
@@ -155,6 +158,7 @@ def build_index(cfg: LoreWikiConfig, *, rebuild: bool = False) -> IndexerStats:
 
     parsed_docs: list[ParsedDocument] = []
     chunks_per_doc: dict[str, list[Chunk]] = {}
+    cleaned_bodies: dict[str, str] = {}
     for file_path in files:
         try:
             parsed = parse_markdown(file_path, rel_to=wiki_path)
@@ -194,14 +198,14 @@ def build_index(cfg: LoreWikiConfig, *, rebuild: bool = False) -> IndexerStats:
 
             # Wipe previous chunks for this doc, then insert fresh rows.
             conn.execute("DELETE FROM documents WHERE doc_path = ?", (parsed.path,))
-            for row in new_rows:
-                conn.execute(
-                    """
-                    INSERT INTO documents
-                      (id, doc_path, chunk_index, title, heading_path,
-                       content, module, tags, token_count, content_hash)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
+            conn.executemany(
+                """
+                INSERT INTO documents
+                  (id, doc_path, chunk_index, title, heading_path,
+                   content, module, tags, token_count, content_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
                     (
                         row.id,
                         row.doc_path,
@@ -213,21 +217,23 @@ def build_index(cfg: LoreWikiConfig, *, rebuild: bool = False) -> IndexerStats:
                         row.tags_csv(),
                         row.token_count,
                         row.content_hash,
-                    ),
-                )
+                    )
+                    for row in new_rows
+                ],
+            )
             stats.files_indexed += 1
             stats.chunks_written += len(new_rows)
 
         # Hierarchy is fully rebuilt each run: cheap, always consistent.
         conn.execute("DELETE FROM hierarchy")
         nodes = _build_hierarchy_nodes(parsed_docs)
-        for node in nodes:
-            conn.execute(
-                """
-                INSERT INTO hierarchy
-                  (id, parent_id, node_type, title, summary, path, level, doc_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+        conn.executemany(
+            """
+            INSERT INTO hierarchy
+              (id, parent_id, node_type, title, summary, path, level, doc_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
                 (
                     node.id,
                     node.parent_id,
@@ -237,8 +243,10 @@ def build_index(cfg: LoreWikiConfig, *, rebuild: bool = False) -> IndexerStats:
                     node.path,
                     node.level,
                     node.doc_id,
-                ),
-            )
+                )
+                for node in nodes
+            ],
+        )
         stats.nodes_written = len(nodes)
 
         set_meta(conn, "last_indexed_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
