@@ -20,6 +20,7 @@ from rich.table import Table
 # the "two ways to import the same symbol" confusion).
 from lorewiki.cli.apps import console, log
 from lorewiki.config import LoreWikiConfig, load_config
+from lorewiki.config import _deep_merge as deep_merge
 
 # ---------------------------------------------------------------------------
 # Config resolution
@@ -122,16 +123,6 @@ def unflatten(flat: dict[str, Any]) -> dict[str, Any]:
         for part in parts[:-1]:
             cursor = cursor.setdefault(part, {})
         cursor[parts[-1]] = value
-    return out
-
-
-def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    out = dict(base)
-    for k, v in override.items():
-        if isinstance(v, dict) and isinstance(out.get(k), dict):
-            out[k] = deep_merge(out[k], v)
-        else:
-            out[k] = v
     return out
 
 

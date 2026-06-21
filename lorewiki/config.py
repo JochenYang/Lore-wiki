@@ -277,6 +277,7 @@ __all__ = [
     "LoreWikiConfig",
     "MixWeights",
     "VectorConfig",
+    "_deep_merge",
     "default_config_toml",
     "load_config",
     "save_config",
