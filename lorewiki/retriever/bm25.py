@@ -106,15 +106,16 @@ class BM25Retriever(BaseRetriever):
         self, conn: sqlite3.Connection, query: str, top_k: int
     ) -> Iterable[SearchHit]:
         like = f"%{query}%"
+        # Only search title and heading_path to avoid full content scan
         rows = conn.execute(
             """
             SELECT id AS chunk_id, doc_path, title, heading_path, module,
                    content AS snippet, length(content) AS clen
             FROM documents
-            WHERE title LIKE ? OR content LIKE ? OR heading_path LIKE ?
+            WHERE title LIKE ? OR heading_path LIKE ?
             LIMIT ?
             """,
-            (like, like, like, top_k * 2),
+            (like, like, top_k * 2),
         ).fetchall()
         hits: list[SearchHit] = []
         for r in rows:
