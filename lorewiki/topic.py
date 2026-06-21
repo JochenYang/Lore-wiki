@@ -569,7 +569,11 @@ class TopicManager:
         topic_root = self.root / name
         if not topic_root.is_dir():
             raise FileNotFoundError(f"topic {name!r} not found at {topic_root}")
-        shutil.rmtree(topic_root)
+        def _on_error(func, path, exc_info):
+            """Log error but continue deletion."""
+            log.warning("failed to delete {}: {}", path, exc_info[1])
+        
+        shutil.rmtree(topic_root, onerror=_on_error)
         log.info("deleted topic {name!r} at {root}", name=name, root=topic_root)
         if self.current() == name:
             self._write_current(None)
