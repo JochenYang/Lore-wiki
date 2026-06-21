@@ -25,9 +25,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
-H2_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
-CODE_FENCE_RE = re.compile(r"^```")
+from lorewiki.indexer.patterns import H1_RE, H2_RE, CODE_FENCE_RE
 
 
 @dataclass(slots=True)

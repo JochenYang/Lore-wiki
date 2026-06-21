@@ -14,7 +14,7 @@ from typing import Any
 
 import frontmatter
 
-H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
+from lorewiki.indexer.patterns import H1_RE
 
 
 @dataclass(slots=True)

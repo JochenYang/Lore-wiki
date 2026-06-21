@@ -132,7 +132,7 @@ def _strip_surrogates(text: str) -> str:
 # Title inference
 # ---------------------------------------------------------------------------
 
-H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
+from lorewiki.indexer.patterns import H1_RE
 
 
 def _extract_h1(body: str) -> str | None:
