@@ -46,7 +46,12 @@ def parse_markdown(file_path: Path, *, rel_to: Path | None = None) -> ParsedDocu
     relative to that directory (POSIX separators) so paths stay stable across
     machines.
     """
-    raw = file_path.read_text(encoding="utf-8")
+    # Use utf-8-sig to transparently strip a leading BOM (EF BB BF) that
+    # Windows PowerShell ``Out-File`` / ``Set-Content`` writes by default.
+    # Without this, ``python-frontmatter`` fails to detect the frontmatter
+    # block (the ``---`` marker is not at offset 0) and the entire
+    # frontmatter leaks into ``body``, polluting the FTS index.
+    raw = file_path.read_text(encoding="utf-8-sig")
     post = frontmatter.loads(raw)
     metadata = dict(post.metadata or {})
     body = post.content

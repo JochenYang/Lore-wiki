@@ -3,8 +3,7 @@
 Goals:
 * ``lorewiki --version`` prints the package version.
 * ``lorewiki --help`` lists every sub-command we promised in the dev plan.
-* ``lorewiki update`` (removed in 0.3.0) is now reported as an unknown
-  command rather than the old "phase pending" panel.
+* An unknown sub-command is reported as an error (not a crash).
 """
 
 from __future__ import annotations
@@ -34,16 +33,6 @@ def test_help_lists_all_subcommands(runner: CliRunner) -> None:
     assert result.exit_code == 0
     for cmd in ("init", "index", "status", "search", "ask", "config", "topic"):
         assert cmd in result.stdout, f"sub-command {cmd!r} missing from --help"
-
-
-def test_update_subcommand_is_removed(runner: CliRunner) -> None:
-    """Removed in 0.3.0: ``lorewiki update`` must report 'unknown command'."""
-    result = runner.invoke(app, ["update"])
-    assert result.exit_code != 0
-    assert "no such command" in result.output.lower() or "unknown" in result.output.lower(), (
-        f"expected 'no such command' / 'unknown' in output, got:\n{result.output}"
-    )
-    assert "not yet implemented" not in result.output.lower()
 
 
 def test_index_watch_flag_is_accepted(runner: CliRunner) -> None:

@@ -16,9 +16,11 @@ from lorewiki.cli import (
     apps,  # noqa: F401  (side-effect: import decorators register)
     commands,  # noqa: F401  (registers init / index / …)
     config_cmds,  # noqa: F401  (registers config list / get / set)
+    delete,  # noqa: F401  (registers `lorewiki delete`)
     helpers,  # noqa: F401  (side-effect: re-export symbols)
     install_cmd,  # noqa: F401  (registers `lorewiki install`)
     topic_cmds,  # noqa: F401  (registers topic …)
+    update,  # noqa: F401  (registers `lorewiki update`)
 )
 from lorewiki.cli.apps import app  # re-exported for the entry point
 from lorewiki.cli.helpers import print_phase_status  # re-exported for tests

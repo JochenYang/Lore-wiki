@@ -1,16 +1,17 @@
 ﻿# How LoreWiki works — operational deep-dive
 
-> Companion to `architecture.md`. Where `architecture.md` is the
-> bird's-eye view (what lives where, who calls who), this document
-> follows **one query end-to-end** through the code, and then digs
-> into how configuration actually takes effect (especially the LLM).
+> Applies to lorewiki **0.4.x**. Companion to `architecture.md`. Where
+> `architecture.md` is the bird's-eye view (what lives where, who calls
+> who), this document follows **one query end-to-end** through the code,
+> and then digs into how configuration actually takes effect (especially
+> the LLM).
 
-## 1. End-to-end: a single `lorewiki search "限流方案" --raw`
+## 1. End-to-end: a single `lorewiki search "限流方案" --human`
 
 You run, from any directory:
 
 ```bash
-lorewiki search "限流方案" --mode mix --top-k 5 --raw
+lorewiki search "限流方案" --mode mix --top-k 5 --human
 ```
 
 Here is the full chain of what happens, in order, with file:line
@@ -18,11 +19,12 @@ references where it helps.
 
 ### 1.1 CLI dispatch
 
-`lorewiki/cli.py` is built with Typer. The root `@app.callback`
-reads `--topic` and stashes it into the process environment:
+The `lorewiki/cli/` package is built with Typer. The root
+`@app.callback` reads `--topic` and stashes it into the process
+environment:
 
 ```python
-# lorewiki/cli.py, in @app.callback
+# lorewiki/cli/apps.py, in @app.callback
 if topic:
     os.environ["LOREWIKI_TOPIC"] = topic
 ```
@@ -30,8 +32,8 @@ if topic:
 This is the "dirty but cheap" plumbing — see §3 below for why
 `load_config` reads it from `os.environ` instead of `ctx.obj`.
 
-`search` is then dispatched to `cli.py::search` with `query`,
-`--mode`, `--top-k`, `--raw` resolved by Typer.
+`search` is then dispatched to `cli/commands.py::search` with
+`query`, `--mode`, `--top-k`, `--human` resolved by Typer.
 
 ### 1.2 Config resolution (the part that surprises most newcomers)
 
@@ -91,10 +93,11 @@ implemented yet — see the limitations in
 For `mix`:
 
 ```python
-# cli.py::_run_search
+# lorewiki/retriever/search.py::run_search  (called from cli/commands.py::search)
 bm25 = BM25Retriever.from_config(cfg)
 hier = HierarchyRetriever.from_config(cfg)
-fused = RRFFusion(cfg.mix_weights).fuse(query, bm25.search(q), hier.search(q))
+per_retriever = {"bm25": bm25.search(q), "hierarchy": hier.search(q)}
+fused = RRFFusion(k=cfg.rrf_k, weights=cfg.mix_weights).fuse(per_retriever, top_k=top_k)
 ```
 
 `BM25Retriever.from_config(cfg.db_path, cfg.snippet_chars)` and
@@ -140,7 +143,8 @@ and hierarchy Recall drops from 90 % to 50 %. (See
 
 ### 1.7 RRF fusion
 
-`RRFFusion.fuse(query, bm25_hits, hierarchy_hits)` walks both lists,
+`RRFFusion.fuse(per_retriever: Mapping[str, Iterable[SearchHit]], *, top_k)`
+walks each retriever's hit list (keyed by name in the mapping),
 sums `weight / (k + rank)` for each chunk, sorts by combined
 score, and returns the top-N. Default `k=60`, default
 weights `bm25=1.0`, `hierarchy=0.8`.
@@ -152,7 +156,7 @@ absent. This is the entire "consensus boost" idea.
 
 ### 1.8 Output formatting
 
-For `--raw` (the agent path):
+For default output (the agent path):
 
 ```json
 [
@@ -170,7 +174,7 @@ For `--raw` (the agent path):
 ]
 ```
 
-For default output (the human path): a Rich table with the same
+For `--human` (the human path): a Rich table with the same
 fields, `score` formatted to 3 decimal places, `snippet`
 clipped to `cfg.snippet_chars` (default 240) and rendered in
 the terminal width.
@@ -192,7 +196,7 @@ user
            │    hierarchy → HierarchyRetriever.search → top-k
            │    mix       → BM25.search ∪ Hierarchy.search → RRFFusion.fuse → top-k
            │    vector    → fallback to mix (with notice)
-           ├─> format: Rich table (default) | JSON (--raw)
+           ├─> format: JSON (default) | Rich table (--human)
            └─> sys.stdout.write(...)
 ```
 
@@ -415,7 +419,7 @@ file builds on the previous.
 5. `lorewiki/retriever/bm25.py` + `hierarchy.py` + `fusion.py` —
    the retrieval pipeline.
 6. `lorewiki/llm/client.py` + `generator.py` — the LLM layer.
-7. `lorewiki/cli.py` — the dispatch table, calling into all
+7. `lorewiki/cli/` package — the dispatch table, calling into all
    of the above.
 8. `lorewiki/server/rest_api.py` + `mcp_server.py` + `ui.py` —
    the alternative entry points; they all re-use the same

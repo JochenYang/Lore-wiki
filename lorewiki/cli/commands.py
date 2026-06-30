@@ -28,7 +28,6 @@ from lorewiki.config import LoreWikiConfig, save_config
 from lorewiki.db import get_meta, open_db
 from lorewiki.indexer import build_index, cleaning, iter_markdown_files
 from lorewiki.indexer.cleaning import clean_markdown_file
-from lorewiki.indexer.parser import parse_markdown
 from lorewiki.llm import AnswerGenerator
 from lorewiki.retriever import run_search
 
@@ -381,7 +380,10 @@ def ask(
                 {
                     "chunk_id": h.chunk_id,
                     "doc_path": h.doc_path,
+                    "title": h.title,
                     "heading_path": h.heading_path,
+                    "module": h.module,
+                    "snippet": h.snippet,
                     "score": h.score,
                     "retriever": h.retriever,
                 }
@@ -534,10 +536,19 @@ def show(
     ] = None,
     raw: Annotated[
         bool,
-        typer.Option("--raw", help="Print the on-disk .md verbatim (no cleaning)."),
+        typer.Option(
+            "--raw",
+            help="Print the cleaned body as plain markdown (no Rich markup). "
+            "Default output includes Rich formatting for human eyes.",
+        ),
     ] = False,
 ) -> None:
-    """Print a single document's body (cleaned by default)."""
+    """Print a single document's body (cleaned by default).
+
+    By default, prints a Rich-formatted view with doc metadata header.
+    Use ``--raw`` for plain markdown output (no Rich markup) suitable for
+    piping to other tools or LLM consumption.
+    """
     cfg = resolve_config(path)
     if cfg.db_path is None or not cfg.db_path.exists():
         console.print("[red]No index found. Run `lorewiki index` first.[/red]")
@@ -551,22 +562,18 @@ def show(
         if row is None:
             console.print(f"[red]doc not found:[/red] {doc_path}")
             raise typer.Exit(code=3)
-        # Re-read the body. If the user wants the on-disk .md (with scraper
-        # boilerplate), we go through the parser. Otherwise we render the
-        # cleaned body that was indexed.
+        # Re-read the body from the indexed (cleaned) content so both
+        # default and --raw modes see the same cleaned body. The on-disk
+        # .md may still contain scraper boilerplate / BOM that was
+        # stripped during indexing.
+        body = cleaning.strip_breadcrumb_prefix(row["content"])
+        body = cleaning.strip_translation_footer(body)
+
         if raw:
-            abs_path = cfg.wiki_path / doc_path
-            if not abs_path.exists():
-                console.print(f"[red]file not found:[/red] {abs_path}")
-                raise typer.Exit(code=4)
-            try:
-                parsed = parse_markdown(abs_path, rel_to=cfg.wiki_path)
-            except (OSError, UnicodeDecodeError) as exc:
-                console.print(f"[red]read failed:[/red] {exc}")
-                raise typer.Exit(code=4) from exc
-            console.print(f"--- [dim]{doc_path}[/dim] ---")
-            console.print(parsed.body.rstrip())
+            # Plain markdown output — no Rich markup, for LLM / piping.
+            typer.echo(body.rstrip())
         else:
+            # Rich-formatted for human eyes.
             console.print(
                 f"# {cleaning.clean_title(row['title'])}\n"
                 f"\n"
@@ -574,11 +581,6 @@ def show(
                 f"[dim]module:[/dim] {row['module']}\n"
                 f"[dim]heading:[/dim] {cleaning.clean_heading_path(row['heading_path'])}\n"
             )
-            # The stored content has the [heading_path] breadcrumb prefix
-            # baked in for FTS recall. We strip it for display so users see
-            # the body as it would render in Obsidian.
-            body = cleaning.strip_breadcrumb_prefix(row["content"])
-            body = cleaning.strip_translation_footer(body)
             console.print(body.rstrip())
 
 
@@ -596,6 +598,10 @@ def tree(
         str | None,
         typer.Option("--path", "-p", help="Project / wiki path."),
     ] = None,
+    raw: Annotated[
+        bool,
+        typer.Option("--raw", help="Output JSON (for LLM agents) instead of ASCII tree."),
+    ] = False,
 ) -> None:
     """Print the wiki hierarchy as a tree."""
     cfg = resolve_config(path)
@@ -619,6 +625,24 @@ def tree(
         all_nodes = conn.execute(
             "SELECT id, parent_id, title, level, node_type, path FROM hierarchy"
         ).fetchall()
+
+        # --raw: output structured JSON for LLM consumption.
+        if raw:
+            import json as _json  # noqa: PLC0415
+            nodes_json = [
+                {
+                    "id": n["id"],
+                    "parent_id": n["parent_id"],
+                    "node_type": n["node_type"],
+                    "title": cleaning.clean_title(n["title"]),
+                    "path": n["path"],
+                    "level": n["level"],
+                }
+                for n in all_nodes
+            ]
+            typer.echo(_json.dumps({"nodes": nodes_json}, ensure_ascii=False, indent=2))
+            return
+
         children: dict[str | None, list[Any]] = {}
         for n in all_nodes:
             children.setdefault(n["parent_id"], []).append(n)

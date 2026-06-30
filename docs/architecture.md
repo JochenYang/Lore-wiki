@@ -1,12 +1,12 @@
 ﻿# LoreWiki — How it works & structure
 
-> v0.1.x · A reference for maintainers and future contributors.
+> v0.4.x · A reference for maintainers and future contributors.
 
 ## 1. One-paragraph summary
 
 > **LoreWiki = a SQLite FTS5 index + a directory of knowledge "topics"
-> (vaults) under the user's home + multiple entry points (CLI / REST /
-> UI / MCP / agent skill).**
+> (vaults) under the user's home + a single CLI entry point (used
+> directly by humans and by agent skills that shell out to it).**
 > Data is yours, shared across every project, and the vault root is
 > a plain folder that Obsidian / Logseq / VS Code can open directly.
 
@@ -21,8 +21,9 @@
 3. **Cross-project** — topics live in `~/.lorewiki/topics/`, never
    inside any project. `lorewiki search` from project A or B hits
    the same active-topic index.
-4. **Equal entry points** — CLI / REST / UI / MCP / agent skill
-   share the same config and the same DB. There is no "secondary"
+4. **One CLI, many callers** — humans run `lorewiki` directly; agent
+   skills (opencode et al.) shell out to the same CLI with `--raw`
+   JSON. Same config, same DB, same retrieval logic — no "secondary"
    entry point.
 5. **Graceful degradation** — LLM down → `ask` returns top-K hits.
    BM25 index missing → prompt to rebuild. Windows shell with
@@ -163,48 +164,75 @@ queries **only** the cocos topic.
 
 ```text
 lorewiki/
-├── __init__.py
-├── cli.py                   # Typer CLI entry; 7 root commands + topic subcommand group
+├── __init__.py              # __version__ = "0.4.1"
+├── __main__.py              # `python -m lorewiki` entry
 ├── config.py                # pydantic-settings loader + topic resolution
 ├── topic.py                 # TopicManager: second-brain CRUD
+├── cli/                     # Typer CLI package (split from cli.py)
+│   ├── __init__.py          # side-effect imports all command modules; re-exports `app`
+│   ├── apps.py              # Typer `app` / `config_app` / `topic_app` + shared console
+│   ├── commands.py          # init / index / search / ask / show / tree …
+│   ├── add.py               # `lorewiki add` quick-capture
+│   ├── config_cmds.py       # `lorewiki config list|get|set`
+│   ├── topic_cmds.py        # `lorewiki topic …` subgroup
+│   ├── install_cmd.py       # `lorewiki install` (skill / tool installer)
+│   └── helpers.py           # shared CLI helpers (printing, phase status)
 ├── db/
 │   ├── schema.sql           # documents / docs_fts (FTS5 trigram) / hierarchy / meta
-│   ├── connection.py        # open_db() context manager
+│   ├── connection.py        # open_db() context manager + pooling + schema cache
+│   ├── models.py            # typed dataclasses: DocumentChunk / HierarchyNode / SearchHit
 │   └── __init__.py
 ├── indexer/
 │   ├── parser.py            # frontmatter + body parsing
 │   ├── chunker.py           # ## split + token budget + code-fence guard
-│   └── indexer.py           # walker → parse → chunk → INSERT
+│   ├── cleaning.py          # scraped-markdown cleanup (anchor / metadata / footer stripping)
+│   ├── patterns.py          # unified regex patterns for markdown parsing
+│   ├── indexer.py           # walker → parse → chunk → INSERT
+│   └── __init__.py
 ├── retriever/
+│   ├── base.py              # BaseRetriever ABC
 │   ├── bm25.py              # three-tier BM25: phrase → OR trigrams → LIKE
 │   ├── hierarchy.py         # module/heading path matching (bigram + trigram)
-│   └── fusion.py            # RRF (Reciprocal Rank Fusion)
+│   ├── vector.py            # Phase-6 vector backend (stub; CLI falls back to `mix`)
+│   ├── fusion.py            # RRF (Reciprocal Rank Fusion)
+│   ├── search.py            # run_search() dispatch: bm25 / hierarchy / mix / vector
+│   └── __init__.py
 ├── llm/
 │   ├── client.py            # BaseLLMClient + OllamaClient + OpenAIClient + DisabledLLMClient
-│   └── generator.py         # AnswerGenerator: prompt assembly + invoke + parse
-├── server/
-│   ├── rest_api.py          # FastAPI: 6 endpoints + OpenAPI + 503 fallback
-│   └── mcp_server.py        # MCP stdio: search_lorewiki + get_module_summary
-│                            # (Streamlit web UI removed in 0.1.0)
+│   ├── generator.py         # AnswerGenerator: prompt assembly + invoke + parse
+│   └── __init__.py
 └── utils/
-    └── logger.py            # loguru wrapper
+    ├── logger.py            # loguru wrapper
+    ├── topic_shared.py      # single source of truth for reading ~/.lorewiki/current
+    ├── skill_installer.py   # wheel-internal skill/tool catalog for `lorewiki install`
+    └── __init__.py
 ```
+
+> The `server/` subtree (`rest_api.py`, `mcp_server.py`, and the
+> earlier `ui.py`) was removed in 0.2.0 when the project consolidated
+> on the CLI as the single entry point; agent skills now shell out
+> to `lorewiki` instead of calling a separate server.
 
 ### 5.1 Key module responsibilities
 
-| Module                  | Responsibility                                                                                |
-| ----------------------- | --------------------------------------------------------------------------------------------- |
-| `cli.py`                | Typer command tree; env / config / flag merging; `--topic` global flag injection             |
-| `config.py`             | 4-layer config priority: defaults → user TOML → **topic TOML** → project TOML → env → overrides |
-| `topic.py`              | Second-brain CRUD; `validate_name` defends against `../`-style path traversal; `TopicManager(root=...)` rejects paths outside `USER_TOPICS_ROOT` by default |
-| `db/schema.sql`         | 4 tables + 3 triggers; FTS5 with **trigram tokenizer** (CJK-friendly)                        |
-| `indexer/chunker.py`    | `##` split + token budget + tiny-merge + code-fence preservation                             |
-| `retriever/bm25.py`     | Three-tier query: phrase ≥3 char → OR trigrams → LIKE fallback                               |
-| `retriever/hierarchy.py` | Bigram + trigram tokenization so 2-character CJK terms can match titles                      |
-| `retriever/fusion.py`   | RRF k=60 (no need to normalise across score scales)                                            |
-| `llm/client.py`         | Pure httpx; auto-compatible with OpenAI-protocol proxies                                      |
-| `server/rest_api.py`    | 503 fallback when DB / LLM missing                                                            |
-| `server/mcp_server.py`  | Low-level `Server` API (not FastMCP, signature stability)                                    |
+| Module | Responsibility |
+| --- | --- |
+| `cli/` package | Typer command tree split across `apps` / `commands` / `add` / `config_cmds` / `topic_cmds` / `install_cmd`; `cli/__init__.py` side-effect-imports every command module so `@app.command()` decorators fire; `--topic` global flag injection |
+| `config.py` | 4-layer config priority: defaults → user TOML → **topic TOML** → project TOML → env → overrides |
+| `topic.py` | Second-brain CRUD; `validate_name` defends against `../`-style path traversal; `TopicManager(root=...)` rejects paths outside `USER_TOPICS_ROOT` by default |
+| `db/schema.sql` | 4 tables + 3 triggers; FTS5 with **trigram tokenizer** (CJK-friendly) |
+| `db/models.py` | Typed dataclasses (`DocumentChunk` / `HierarchyNode` / `SearchHit`) shared by indexer + retriever |
+| `db/connection.py` | `open_db()` context manager + connection pooling + schema-version cache |
+| `indexer/chunker.py` | `##` split + token budget + tiny-merge + code-fence preservation |
+| `indexer/cleaning.py` | Strips scraper chrome (anchor markup, repeated metadata blockquotes, translation footers) so it does not pollute the FTS5 + hierarchy indices |
+| `retriever/bm25.py` | Three-tier query: phrase ≥3 char → OR trigrams → LIKE fallback |
+| `retriever/hierarchy.py` | Bigram + trigram tokenization so 2-character CJK terms can match titles |
+| `retriever/vector.py` | Phase-6 vector backend stub; direct calls raise `NotImplementedError`, CLI `--mode vector` falls back to `mix` |
+| `retriever/fusion.py` | RRF k=60 (no need to normalise across score scales) |
+| `retriever/search.py` | `run_search()` dispatch — single source of truth used by `search` / `ask` / skill; modes: `bm25` / `hierarchy` / `mix` / `vector` |
+| `llm/client.py` | Pure httpx; auto-compatible with OpenAI-protocol proxies |
+| `utils/topic_shared.py` | Single source of truth for reading `~/.lorewiki/current`; breaks the old config↔topic circular import |
+| `utils/skill_installer.py` | Wheel-internal skill/tool catalog powering `lorewiki install`; mirrors repo-side `skills/install.py` |
 
 ## 6. Config-loading priority
 
@@ -295,16 +323,17 @@ User query: "限流方案"            # (also: "rate limit" in English works equ
 
 ## 9. Entry-point comparison (same query, different output)
 
-| Entry point                          | Call                                                    | Output                                  |
-| ------------------------------------ | ------------------------------------------------------- | --------------------------------------- |
-| **CLI (human)**                       | `lorewiki search "限流"`                                  | Rich table (default) / JSON (`--raw`)   |
-| **CLI (agent)**                       | `lorewiki --topic react search "限流" --raw`              | Pure JSON array (clean UTF-8)           |
-| **REST API**                           | `GET /search?q=限流`                                     | JSON (OpenAPI at `/docs`)               |
-| **MCP stdio**                          | `search_lorewiki(query="限流")`                          | MCP JSON-RPC frame                      |
-| **agent skill** (opencode et al.)     | agent reads SKILL.md, calls `lorewiki search --raw`      | agent parses the JSON itself            |
+| Entry point | Call | Output |
+| --- | --- | --- |
+| **CLI (human)** | `lorewiki search "限流"` | Rich table (default) / JSON (`--raw`) |
+| **CLI (agent)** | `lorewiki --topic react search "限流" --raw` | Pure JSON array (clean UTF-8) |
+| **agent skill** (opencode et al.) | agent reads SKILL.md, calls `lorewiki search --raw` | agent parses the JSON itself |
 
 **All entry points** use the same DB, the same config, the same
-retrieval logic — **no "secondary" entry**.
+retrieval logic — **no "secondary" entry**. The legacy REST API,
+MCP stdio server, and Streamlit web UI that shipped in 0.1.x were
+removed when the `server/` subtree was dropped in 0.2.0; the CLI is
+now the single entry point, and agent skills shell out to it.
 
 ## 10. Backup & migration
 
@@ -342,8 +371,8 @@ tar xzf lorewiki-backup.tar.gz -C ~
 - **Topic-name rules**: `^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$` — blocks
   `../`, reserved CLI subcommand names, and Windows device names.
 - **`TopicManager(root=...)` defence**: by default rejects any root
-  outside `USER_TOPICS_ROOT` (defence against MCP-driven
-  injection).
+  outside `USER_TOPICS_ROOT` (defence against programmatic /
+  agent-driven path injection).
 - **CLI encoding**: Windows shells with non-UTF-8 code pages are
   auto-reconfigured at import time (defence against GBK mojibake).
 - **No hardcoded secrets**: LLM keys come from env / TOML, never
@@ -366,16 +395,21 @@ tar xzf lorewiki-backup.tar.gz -C ~
 
 ## 13. Phase history
 
-| Phase  | Topic                              | Status   |
-| ------ | ---------------------------------- | -------- |
-| 0      | bootstrap / CLI skeleton           | ✅ done  |
-| 1      | index + BM25 search                | ✅ done  |
-| 2      | hierarchy + RRF fusion             | ✅ done  |
-| 3      | LLM integration                    | ✅ done  |
-| 4      | REST + packaging                  | ✅ done  |
-| 5      | MCP server + packaging             | ✅ done  |
-| 6      | **Topic / second-brain model**     | ✅ done  |
-| 7+     | future iterations                  | ⏳ TBD  |
+| Phase | Topic | Status |
+| --- | --- | --- |
+| 0 | bootstrap / CLI skeleton | ✅ done |
+| 1 | index + BM25 search | ✅ done |
+| 2 | hierarchy + RRF fusion | ✅ done |
+| 3 | LLM integration | ✅ done |
+| 4 | REST + packaging | removed in 0.2.0 (`server/` dropped) |
+| 5 | MCP server + packaging | removed in 0.2.0 (`server/` dropped) |
+| 6 | **Topic / second-brain model** | ✅ done |
+| 7+ | vector retrieval + future iterations | ⏳ TBD (vector stub in place) |
+
+> Note: the Streamlit web UI was removed in 0.1.0; the REST API and
+> MCP stdio server (Phase 4 / 5, `server/` subtree) were removed in
+> 0.2.0. The CLI is now the sole entry point — agent skills shell
+> out to `lorewiki` instead of calling a separate server.
 
 ## 14. Cheat sheet
 

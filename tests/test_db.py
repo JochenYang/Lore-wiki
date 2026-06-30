@@ -20,7 +20,7 @@ def test_init_db_creates_tables(tmp_path: Path) -> None:
             for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
         assert {"documents", "docs_fts", "hierarchy", "meta", "schema_version"} <= tables
-        assert schema_version(conn) == 1
+        assert schema_version(conn) == 2
 
 
 def test_meta_upsert(tmp_path: Path) -> None:

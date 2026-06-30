@@ -44,6 +44,23 @@ def discover_project_dir(cfg: LoreWikiConfig) -> Path:
     return cfg.wiki_path
 
 
+def resolve_doc_target(doc_path: str, wiki_root: Path) -> Path:
+    """Resolve a user-supplied ``doc_path`` against the wiki root.
+
+    Absolute paths are honoured as-is; relative paths are joined
+    under ``wiki_root``. The result is NOT yet safety-checked — the
+    caller must run :func:`lorewiki.cli.add._is_safe_target` on the
+    return value before any filesystem write / delete.
+
+    Used by the ``update`` and ``delete`` commands so they accept the
+    same ``doc_path`` spelling (relative to the wiki, or absolute).
+    """
+    raw = Path(doc_path)
+    if raw.is_absolute():
+        return raw.resolve(strict=False)
+    return (wiki_root / raw).resolve(strict=False)
+
+
 # ---------------------------------------------------------------------------
 # Output formatting
 # ---------------------------------------------------------------------------
@@ -148,6 +165,7 @@ __all__ = [
     "parse_toml_literal",
     "print_phase_status",
     "resolve_config",
+    "resolve_doc_target",
     "safe_load_toml",
     "unflatten",
 ]

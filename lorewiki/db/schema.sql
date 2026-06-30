@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 
 INSERT OR IGNORE INTO schema_version(version) VALUES (1);
+INSERT OR IGNORE INTO schema_version(version) VALUES (2);
 
 CREATE TABLE IF NOT EXISTS documents (
     rowid INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,28 +57,31 @@ CREATE TABLE IF NOT EXISTS documents (
 CREATE INDEX IF NOT EXISTS idx_documents_doc_path ON documents(doc_path);
 CREATE INDEX IF NOT EXISTS idx_documents_module ON documents(module);
 
+-- FTS5 virtual table: tags column included so frontmatter tags participate
+-- in full-text search. This lets ``lorewiki search "jwt"`` match a doc whose
+-- frontmatter ``tags: [jwt, auth]`` even if "jwt" does not appear in the body.
 CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(
-    title, content, module, heading_path,
+    title, content, module, heading_path, tags,
     content=documents,
     content_rowid=rowid,
     tokenize='trigram'
 );
 
 CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
-    INSERT INTO docs_fts(rowid, title, content, module, heading_path)
-    VALUES (new.rowid, new.title, new.content, new.module, new.heading_path);
+    INSERT INTO docs_fts(rowid, title, content, module, heading_path, tags)
+    VALUES (new.rowid, new.title, new.content, new.module, new.heading_path, new.tags);
 END;
 
 CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
-    INSERT INTO docs_fts(docs_fts, rowid, title, content, module, heading_path)
-    VALUES('delete', old.rowid, old.title, old.content, old.module, old.heading_path);
+    INSERT INTO docs_fts(docs_fts, rowid, title, content, module, heading_path, tags)
+    VALUES('delete', old.rowid, old.title, old.content, old.module, old.heading_path, old.tags);
 END;
 
 CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
-    INSERT INTO docs_fts(docs_fts, rowid, title, content, module, heading_path)
-    VALUES('delete', old.rowid, old.title, old.content, old.module, old.heading_path);
-    INSERT INTO docs_fts(rowid, title, content, module, heading_path)
-    VALUES (new.rowid, new.title, new.content, new.module, new.heading_path);
+    INSERT INTO docs_fts(docs_fts, rowid, title, content, module, heading_path, tags)
+    VALUES('delete', old.rowid, old.title, old.content, old.module, old.heading_path, old.tags);
+    INSERT INTO docs_fts(rowid, title, content, module, heading_path, tags)
+    VALUES (new.rowid, new.title, new.content, new.module, new.heading_path, new.tags);
 END;
 
 CREATE TABLE IF NOT EXISTS hierarchy (

@@ -48,7 +48,7 @@ def _run_lorewiki(args: list[str]) -> subprocess.CompletedProcess[bytes]:
         capture_output=True,
         text=False,
         check=False,
-        timeout=15,
+        timeout=30,
     )
 
 

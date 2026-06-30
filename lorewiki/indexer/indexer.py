@@ -252,7 +252,7 @@ def build_index(cfg: LoreWikiConfig, *, rebuild: bool = False) -> IndexerStats:
 
         set_meta(conn, "last_indexed_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
         set_meta(conn, "wiki_path", str(wiki_path))
-        set_meta(conn, "schema_version", "1")
+        set_meta(conn, "schema_version", "2")
         conn.commit()
 
     stats.duration_seconds = time.perf_counter() - started

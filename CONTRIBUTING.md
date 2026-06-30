@@ -15,7 +15,7 @@ uv venv .venv
 uv pip install -e ".[all,dev]"
 
 # verify the install
-lorewiki --version                # LoreWiki 0.1.0
+lorewiki --version                # LoreWiki 0.4.1
 ```
 
 Python **3.10+** required. The project ships a `pyproject.toml`
@@ -46,13 +46,15 @@ on a critical-path module need a justification in the description.
 
 | You want to ...                       | Edit                                  |
 | ------------------------------------- | ------------------------------------- |
-| Add a new CLI subcommand                | `lorewiki/cli.py` (one Typer `@app.command`) |
-| Add a new retriever                     | `lorewiki/retriever/<name>.py` + register in `lorewiki/cli.py::_run_search` |
-| Add a new LLM backend                   | `lorewiki/llm/client.py` (subclass `BaseLLMClient`, add to `build_client` factory) |
-| Add a new HTTP endpoint                 | `lorewiki/server/rest_api.py`          |
-| Add a new MCP tool                      | `lorewiki/server/mcp_server.py`        |
-| Add a new Streamlit page                | `lorewiki/server/ui.py` (lazy import!) |
-| Change config schema                   | `lorewiki/config.py` (pydantic model)   |
+| Add a new CLI subcommand                | `lorewiki/cli/commands.py` (core: `search` / `ask` / `show` / `tree` / `status` / `index` / `init` / `clean`); `lorewiki/cli/add.py` (`add`); `lorewiki/cli/topic_cmds.py` (topic mgmt); `lorewiki/cli/config_cmds.py` (config); `lorewiki/cli/install_cmd.py` (skill install) — each is one Typer `@app.command()` on the shared app from `lorewiki/cli/apps.py` |
+| Add a CLI helper / Typer app instance   | `lorewiki/cli/helpers.py` (shared utils); `lorewiki/cli/apps.py` (`app` / `config_app` instances) |
+| Add a new retriever                     | `lorewiki/retriever/<name>.py` (alongside `bm25.py`, `hierarchy.py`, `fusion.py`, `search.py`); register it in `lorewiki/cli/commands.py` (the `search` command) |
+| Add a new LLM backend                   | `lorewiki/llm/client.py` (subclass `BaseLLMClient`, add to `build_client` factory); answer assembly lives in `lorewiki/llm/generator.py` |
+| Change DB schema / connection / models  | `lorewiki/db/schema.sql` (DDL); `lorewiki/db/connection.py` (engine + sessions); `lorewiki/db/models.py` (dataclasses) |
+| Change indexer parser / chunker / cleaning | `lorewiki/indexer/parser.py`, `chunker.py`, `cleaning.py`, `indexer.py`, `patterns.py` |
+| Change config schema                    | `lorewiki/config.py` (pydantic model)   |
+| Change the topic system                 | `lorewiki/topic.py` |
+| Add a shared util                       | `lorewiki/utils/logger.py`, `skill_installer.py`, `topic_shared.py` |
 | Add a new self-critique document        | `docs/critique/phase-N.md`             |
 
 ## Per-phase discipline
