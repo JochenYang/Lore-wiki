@@ -19,6 +19,9 @@ from pathlib import Path
 
 import pytest
 
+# Skip all tests in this module if the optional 'mcp' package is not installed.
+pytest.importorskip("mcp", reason="mcp package not installed (optional dependency)")
+
 import lorewiki.config as _config_module
 import lorewiki.utils.topic_shared as _topic_shared
 from lorewiki.config import LoreWikiConfig, save_config
