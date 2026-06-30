@@ -4,6 +4,26 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] — 2026-06-30
+
+Three-layer LLM auto-trigger architecture + knowledge base improvements.
+
+### Added
+- **MCP server** (`lorewiki mcp serve`): Exposes search/show/tree as MCP tools for auto-discovery by Claude Desktop, Cursor, and other MCP-compatible clients. Install with `pip install 'lorewiki[mcp]'`.
+- **Auto-inject command** (`lorewiki inject`): Scans project code, extracts API/framework keywords, searches the wiki, and outputs a context block for hook injection into LLM sessions.
+- **Skill auto-trigger rules**: The opencode skill now includes 5 auto-trigger conditions (unfamiliar API, user mentions concept, about to guess, error pattern, before suggesting design pattern). LLM should search without asking.
+- **Document summaries**: `search` now returns document-level summaries (deduplicated by doc_path) instead of chunk snippets. Use `--full` for chunk-level output.
+- **Knowledge graph edges**: Indexer extracts Markdown links into `edges` table. `show --json` outputs `related_docs` field.
+- **Frontmatter `type` field**: Supports `API`/`guide`/`lesson`/`decision` for document classification.
+- **PR-level CI workflow**: Python 3.10/3.11/3.12 matrix with ruff + pytest + coverage.
+
+### Fixed
+- MCP tests now skip gracefully when `mcp` package is not installed.
+- SKILL.md trimmed from 728 to 650 lines; MCP/inject setup details moved to README.
+
+### Verified
+- 368 tests pass, ruff clean.
+
 ## [0.5.0] — 2026-06-30
 
 Major update: CRUD closure, LLM output fixes, tag search, doc sync, CI workflow.
