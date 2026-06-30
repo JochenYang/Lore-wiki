@@ -4,6 +4,29 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-06-30
+
+Major update: CRUD closure, LLM output fixes, tag search, doc sync, CI workflow.
+
+### Added
+- **`lorewiki update` command**: Modify an existing document's body and/or frontmatter, with auto-reindex. Supports `--body`/`--file`/stdin input and `--title`/`--module`/`--tag` updates.
+- **`lorewiki delete` command**: Delete a document with auto-reindex and DB cleanup. Supports `--force` to skip confirmation.
+- **`tree --raw` option**: Output wiki hierarchy as JSON for LLM consumption, instead of ASCII tree.
+- **Tag search**: `tags` column now included in FTS5 virtual table, so frontmatter tags participate in full-text search.
+- **PR-level CI workflow** (`.github/workflows/ci.yml`): Runs ruff + pytest + coverage on Python 3.10/3.11/3.12 matrix for every push/PR to main.
+
+### Fixed
+- **BOM pollution**: `parser.py` now uses `encoding="utf-8-sig"` to transparently strip BOM from Windows PowerShell-created files. Previously, BOM caused frontmatter to leak into the body and pollute the FTS index.
+- **`ask --raw` hits fields**: Now includes `title`, `module`, `snippet` (was missing, inconsistent with `search` output).
+- **`show` output**: Default mode now outputs plain markdown (no Rich markup). `--raw` flag changed to output cleaned body instead of raw on-disk verbatim (which could contain BOM and boilerplate).
+- **README badge**: pytest badge updated from 240 to 336 (now 347).
+- **Documentation sync**: 5 docs updated to v0.4.x state — `docs/README_zh-CN.md`, `CONTRIBUTING.md`, `docs/architecture.md`, `docs/production-readiness.md`, `docs/how-it-works.md`. Removed all references to deleted REST API/MCP server/Streamlit UI features.
+
+### Verified
+- 347 tests pass, ruff clean.
+- CRUD closure tested: add → search → update → search → delete → search.
+- BOM fix tested with real Windows PowerShell-created files.
+
 ## [0.4.1] — 2026-06-21
 
 Hotfix release to correct `__version__` string in package metadata.
