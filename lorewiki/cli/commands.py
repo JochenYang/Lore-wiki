@@ -10,6 +10,7 @@ to make the CLI fully functional.
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any
@@ -253,8 +254,21 @@ def search(
             help="Render a Rich Table for human eyes. Default is JSON for agents.",
         ),
     ] = False,
+    full: Annotated[
+        bool,
+        typer.Option(
+            "--full",
+            help="Return full chunk snippets instead of document summaries. "
+            "Use when you need the exact chunk content, not just an overview.",
+        ),
+    ] = False,
 ) -> None:
-    """Search the wiki and return top-k matching chunks.
+    """Search the wiki and return top-k matching results.
+
+    By default returns **document summaries** (one per doc, deduplicated),
+    so LLM agents can quickly scan which docs are relevant without
+    consuming full chunk content. Use ``--full`` to get the traditional
+    chunk-level snippets with full text.
 
     The default output is structured JSON, designed for downstream agents
     (opencode, claude code, custom scripts). Humans usually want
@@ -280,19 +294,59 @@ def search(
     hits = run_search(cfg, query, mode=effective_mode, top_k=top_k)
 
     if not human:
-        payload = [
-            {
-                "chunk_id": h.chunk_id,
-                "doc_path": h.doc_path,
-                "title": h.title,
-                "heading_path": h.heading_path,
-                "module": h.module,
-                "snippet": h.snippet,
-                "score": h.score,
-                "retriever": h.retriever,
-            }
-            for h in hits
-        ]
+        if full:
+            # Traditional chunk-level output (full snippet per hit).
+            payload = [
+                {
+                    "chunk_id": h.chunk_id,
+                    "doc_path": h.doc_path,
+                    "title": h.title,
+                    "heading_path": h.heading_path,
+                    "module": h.module,
+                    "snippet": h.snippet,
+                    "score": h.score,
+                    "retriever": h.retriever,
+                }
+                for h in hits
+            ]
+        else:
+            # Default: document-level summaries (deduplicated by doc_path).
+            # LLM gets a compact overview — one entry per relevant doc,
+            # with a short summary. Use `lorewiki show <doc_path>` to read
+            # the full content of any doc that looks relevant.
+            seen_docs: dict[str, dict[str, Any]] = {}
+            for h in hits:
+                if h.doc_path in seen_docs:
+                    # Keep the highest score for this doc
+                    seen_docs[h.doc_path]["score"] = max(seen_docs[h.doc_path]["score"], h.score)
+                    continue
+                seen_docs[h.doc_path] = {
+                    "doc_path": h.doc_path,
+                    "title": h.title,
+                    "module": h.module,
+                    "score": h.score,
+                    "retriever": h.retriever,
+                }
+            # Enrich with summary and doc_type from doc_summaries table.
+            with open_db(db_path, auto_init=False) as conn:
+                placeholders = ",".join("?" * len(seen_docs))
+                rows = conn.execute(
+                    f"SELECT doc_path, summary, doc_type FROM doc_summaries "
+                    f"WHERE doc_path IN ({placeholders})",
+                    tuple(seen_docs.keys()),
+                ).fetchall()
+                for row in rows:
+                    entry = seen_docs.get(row["doc_path"])
+                    if entry:
+                        entry["summary"] = row["summary"]
+                        entry["doc_type"] = row["doc_type"]
+            # Ensure every entry has at least a truncated snippet as summary
+            # (for docs not yet in doc_summaries — e.g. old indexes).
+            for h in hits:
+                entry = seen_docs.get(h.doc_path)
+                if entry and "summary" not in entry:
+                    entry["summary"] = (h.snippet or "")[:200]
+            payload = list(seen_docs.values())
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
         return
 
@@ -542,12 +596,22 @@ def show(
             "Default output includes Rich formatting for human eyes.",
         ),
     ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Output structured JSON with content + related_docs. "
+            "Best for LLM agents that want both the doc content and its "
+            "citation links in one call.",
+        ),
+    ] = False,
 ) -> None:
     """Print a single document's body (cleaned by default).
 
     By default, prints a Rich-formatted view with doc metadata header.
     Use ``--raw`` for plain markdown output (no Rich markup) suitable for
-    piping to other tools or LLM consumption.
+    piping to other tools. Use ``--json`` for structured JSON with
+    ``related_docs`` (from the knowledge graph edges table).
     """
     cfg = resolve_config(path)
     if cfg.db_path is None or not cfg.db_path.exists():
@@ -569,7 +633,33 @@ def show(
         body = cleaning.strip_breadcrumb_prefix(row["content"])
         body = cleaning.strip_translation_footer(body)
 
-        if raw:
+        # Fetch related docs from the edges table (knowledge graph).
+        related_docs: list[dict[str, str]] = []
+        try:
+            edge_rows = conn.execute(
+                "SELECT target_doc, link_text FROM edges WHERE source_doc = ?",
+                (doc_path,),
+            ).fetchall()
+            related_docs = [
+                {"doc_path": e["target_doc"], "context": e["link_text"] or ""}
+                for e in edge_rows
+            ]
+        except sqlite3.OperationalError:
+            # edges table may not exist on older indexes without --rebuild.
+            pass
+
+        if json_output:
+            # Structured JSON for LLM agents: content + related_docs.
+            payload = {
+                "doc_path": row["doc_path"],
+                "title": cleaning.clean_title(row["title"]),
+                "module": row["module"],
+                "heading_path": cleaning.clean_heading_path(row["heading_path"]),
+                "content": body.rstrip(),
+                "related_docs": related_docs,
+            }
+            typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+        elif raw:
             # Plain markdown output — no Rich markup, for LLM / piping.
             typer.echo(body.rstrip())
         else:
@@ -581,6 +671,9 @@ def show(
                 f"[dim]module:[/dim] {row['module']}\n"
                 f"[dim]heading:[/dim] {cleaning.clean_heading_path(row['heading_path'])}\n"
             )
+            if related_docs:
+                related_str = ", ".join(r["doc_path"] for r in related_docs[:5])
+                console.print(f"[dim]related:[/dim] {related_str}\n")
             console.print(body.rstrip())
 
 

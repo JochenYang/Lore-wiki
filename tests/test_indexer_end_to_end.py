@@ -122,3 +122,80 @@ def test_file_path_acts_as_dir_raises(tmp_path: Path) -> None:
     cfg = LoreWikiConfig(wiki_path=file_path)
     with pytest.raises(NotADirectoryError):
         build_index(cfg)
+
+
+def test_build_index_writes_summaries_and_edges(tmp_path: Path) -> None:
+    """Cover T3/T4/T5: doc_summaries + edges + frontmatter ``type``.
+
+    This is the only end-to-end assertion that the new tables are actually
+    populated by ``build_index``; without it the writer code paths added
+    for T3/T4 would be unexercised (a green test suite that proves nothing
+    about the new behaviour).
+    """
+    wiki = tmp_path / "wiki"
+    (wiki / "decisions").mkdir(parents=True)
+    (wiki / "api").mkdir(parents=True)
+    (wiki / "patterns").mkdir(parents=True)
+    # 001.md: frontmatter description wins for summary; ``type`` is decision;
+    # body links to ../api/auth.md (relative) and an external https link that
+    # must be skipped.
+    (wiki / "decisions" / "001.md").write_text(
+        "---\n"
+        "title: Decision 001\n"
+        "type: decision\n"
+        "description: Decision summary\n"
+        "---\n\n"
+        "# Decision 001\n\n"
+        "See [auth](../api/auth.md) and [ext](https://example.com).\n",
+        encoding="utf-8",
+    )
+    # auth.md: no description, so summary falls back to the first paragraph;
+    # ``type`` is API (mixed-case to confirm we keep the author's casing).
+    (wiki / "api" / "auth.md").write_text(
+        "---\ntitle: Auth\ntype: API\n---\n\n# Auth\n\nAuth paragraph.\n\n"
+        "## See also\n\nLink to [retry](../patterns/retry.md).\n",
+        encoding="utf-8",
+    )
+    # retry.md: no frontmatter ``type`` → doc_type must be NULL.
+    (wiki / "patterns" / "retry.md").write_text(
+        "# Retry\n\nRetry paragraph.\n", encoding="utf-8"
+    )
+    cfg = LoreWikiConfig(wiki_path=wiki, db_path=tmp_path / "index.db")
+    build_index(cfg, rebuild=True)
+
+    assert cfg.db_path is not None
+    with open_db(cfg.db_path, auto_init=False) as conn:
+        summaries = {
+            r["doc_path"]: (r["summary"], r["doc_type"])
+            for r in conn.execute(
+                "SELECT doc_path, summary, doc_type FROM doc_summaries"
+            ).fetchall()
+        }
+        # One row per document, not per chunk.
+        assert set(summaries) == {
+            "decisions/001.md",
+            "api/auth.md",
+            "patterns/retry.md",
+        }
+        # Priority 1: frontmatter description wins when present.
+        assert summaries["decisions/001.md"] == ("Decision summary", "decision")
+        # Priority 2: first paragraph fallback when no description.
+        assert summaries["api/auth.md"][0] == "Auth paragraph."
+        assert summaries["api/auth.md"][1] == "API"
+        # No frontmatter ``type`` → NULL (SQLite returns None).
+        assert summaries["patterns/retry.md"][1] is None
+
+        edges = {
+            (r["source_doc"], r["target_doc"]): r["link_text"]
+            for r in conn.execute(
+                "SELECT source_doc, target_doc, link_text FROM edges"
+            ).fetchall()
+        }
+        # ../api/auth.md resolved against decisions/ → api/auth.md.
+        assert edges[("decisions/001.md", "api/auth.md")] == "auth"
+        # ../patterns/retry.md resolved against api/ → patterns/retry.md.
+        assert edges[("api/auth.md", "patterns/retry.md")] == "retry"
+        # External https link must NOT be captured as an edge.
+        assert not any(
+            target == "https://example.com" for (_, target) in edges
+        )

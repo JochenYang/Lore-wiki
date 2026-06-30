@@ -73,14 +73,24 @@ def test_init_then_index_then_search(runner: CliRunner, tmp_path: Path) -> None:
     assert search_res.exit_code == 0, search_res.output
     assert "auth.md" in search_res.output
 
-    # search default is JSON (for agents)
+    # search default is JSON (for agents) — document summaries mode.
     raw_res = runner.invoke(
         app, ["search", "JWT", "--path", str(wiki), "--mode", "bm25", "--top-k", "2"]
     )
     assert raw_res.exit_code == 0, raw_res.output
     payload = json.loads(raw_res.output)
     assert isinstance(payload, list)
-    assert all("chunk_id" in r for r in payload)
+    # Default mode returns document summaries (doc_path, title, summary, etc.)
+    assert all("doc_path" in r for r in payload)
+
+    # --full returns chunk-level snippets with chunk_id.
+    full_res = runner.invoke(
+        app, ["search", "JWT", "--path", str(wiki), "--mode", "bm25", "--top-k", "2", "--full"]
+    )
+    assert full_res.exit_code == 0, full_res.output
+    full_payload = json.loads(full_res.output)
+    assert isinstance(full_payload, list)
+    assert all("chunk_id" in r for r in full_payload)
 
 
 def test_search_vector_mode_silently_falls_back_to_mix(

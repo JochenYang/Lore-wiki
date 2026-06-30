@@ -17,7 +17,7 @@
 
 [![uv](https://img.shields.io/badge/uv-pkg%20%2B%20tool-5C2D91?logo=astral&logoColor=white&style=for-the-badge)](https://docs.astral.sh/uv/)
 [![ruff](https://img.shields.io/badge/ruff-0%20errors-D7FF64?logo=ruff&logoColor=black&style=for-the-badge)](https://docs.astral.sh/ruff/)
-[![pytest](https://img.shields.io/badge/pytest-336%20passed-0A9EDC?logo=pytest&logoColor=white&style=for-the-badge)](../tests/)
+[![pytest](https://img.shields.io/badge/pytest-368%20passed-0A9EDC?logo=pytest&logoColor=white&style=for-the-badge)](../tests/)
 [![License](https://img.shields.io/badge/License-MIT-22B14C?style=for-the-badge)](../LICENSE)
 
 ---
@@ -311,19 +311,95 @@ LoreWiki 在 0.1.0 起不再附带内置 Web UI。推荐的消费方式：
 ├─────────────────────────────────────────────────────────────┤
 │  Indexer  │  Retriever (BM25 + Hierarchy + RRF)  │  LLM    │
 ├─────────────────────────────────────────────────────────────┤
-│        SQLite + FTS5 (documents · docs_fts · hierarchy)     │
+│  SQLite + FTS5 (documents · docs_fts · hierarchy · edges)  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 完整设计见 `docs/lorewiki dev document.md`，各阶段自我批判见
 `docs/critique/phase-{0..6}.md`。最终生产就绪报告见 `docs/production-readiness.md`。
 
+## LLM 集成
+
+LoreWiki 支持三层 LLM 集成，从最无感到最通用。三层可共存，按你的工具选择即可。
+
+### 第一层：MCP Server（自动发现）
+
+适用于支持 MCP 的工具（Claude Desktop、Cursor、Continue.dev），LLM **自动发现** lorewiki 工具——无需写 rules 或 skill。
+
+```bash
+# 安装 MCP 支持
+pip install 'lorewiki[mcp]'
+
+# 启动 MCP server（stdio 传输）
+lorewiki mcp serve
+```
+
+**Claude Desktop 配置**——添加到 `claude_desktop_config.json`：
+
+```json
+{
+  "mcpServers": {
+    "lorewiki": {
+      "command": "lorewiki",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+配置后 LLM 会看到 3 个工具：`search`（搜文档）、`show`（读全文 + 关联文档）、`tree`（浏览层级）。工具描述会告诉 LLM 何时调用。
+
+### 第二层：自动注入（透明上下文）
+
+适用于支持 hook 的工具（opencode、自定义脚本），在 session 启动时自动注入相关知识——LLM 甚至不需要知道 lorewiki 的存在。
+
+```bash
+# 扫描项目代码 → 提取关键词 → 搜索知识库 → 输出上下文块
+lorewiki inject --project . --format markdown
+
+# 在 opencode session-start hook 中使用：
+lorewiki inject --project . >> "$CONTEXT_FILE"
+
+# 在 .cursorrules 或 CLAUDE.md 中使用：
+$(lorewiki inject --project . --format markdown)
+```
+
+注入的内容示例：
+
+```markdown
+## Knowledge Base Context (auto-injected)
+
+Based on your project's code, the following wiki docs may be relevant:
+- **wx.login** [API] (api/open-api/login/wx.login.md): 调用接口获取登录凭证code
+- **wx.request** [API] (api/network/request/wx.request.md): 发起HTTPS网络请求
+
+Use `lorewiki show <doc_path>` to read full content.
+```
+
+### 第三层：opencode Skill（通用兜底）
+
+适用于所有其他工具，安装 skill 让 LLM 知道何时、如何使用 lorewiki：
+
+```bash
+lorewiki install --all    # 安装到所有检测到的 AI 工具目录
+```
+
+Skill 包含**自动触发规则**——LLM 遇到不熟悉的 API、用户提到某个概念、或即将猜测时，应自动搜索知识库，无需用户提示。
+
+### 三层对比
+
+| 层级 | 配置              | LLM 感知                | 适用工具                 |
+|------|-------------------|-------------------------|--------------------------|
+| MCP  | 一条配置          | 知道工具存在            | Claude Desktop, Cursor   |
+| 注入 | 一行 hook         | 不知道，上下文已就位    | opencode, 自定义         |
+| Skill | `lorewiki install` | 从 skill 规则知道       | 所有其他工具             |
+
 ## 开发
 
 ```bash
 pip install -e ".[dev]"
 ruff check lorewiki skills tests  # lint
-pytest -q                        # 336 个单元 + 集成测试
+pytest -q                        # 368 个单元 + 集成测试
 pytest --cov=lorewiki            # 覆盖率报告
 ```
 

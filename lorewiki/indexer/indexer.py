@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,6 +53,95 @@ iter_markdown_files = _iter_markdown_files
 
 def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _generate_summary(parsed: ParsedDocument, cleaned_body: str) -> str:
+    """Generate a 1-2 sentence summary for a document.
+
+    Priority: frontmatter ``description`` > first non-empty paragraph of the
+    body > first 200 chars of the body as a last-resort fallback. The summary
+    is capped at 300 chars so ``doc_summaries.summary`` stays cheap to scan
+    when the retriever lists many candidate documents.
+    """
+    # 1. frontmatter description — authoritative when the author wrote one.
+    desc = parsed.metadata.get("description")
+    if isinstance(desc, str) and desc.strip():
+        return desc.strip()[:300]
+
+    # 2. First non-empty paragraph. We walk the (cleaned) body line-by-line,
+    #    skipping headings and blockquotes, and stop at the first blank line
+    #    that terminates the paragraph we're building.
+    body = cleaned_body or parsed.body
+    lines = body.split("\n")
+    para_lines: list[str] = []
+    in_para = False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if in_para and para_lines:
+                break
+            continue
+        if stripped.startswith("#") or stripped.startswith(">"):
+            if in_para and para_lines:
+                break
+            continue
+        in_para = True
+        para_lines.append(stripped)
+
+    if para_lines:
+        return " ".join(para_lines)[:300]
+
+    # 3. Fallback: first 200 chars — covers docs that are pure frontmatter
+    #    or whose body is all headings/quotes.
+    return body.strip()[:200]
+
+
+# Match Markdown links: [text](relative/path.md) or [text](./path.md).
+# ``[^\]]*`` keeps the matcher greedy on link text but bounded on ``]`` so
+# it won't run past the first closing bracket; ``[^)]+`` does the same for
+# the target. This is sufficient for well-formed Markdown produced by the
+# wiki authoring tools we support; we deliberately do not handle the full
+# CommonMark link grammar (nested brackets, image bangs) — those don't
+# appear in our corpus and a stricter parser would belong in ``parser.py``.
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
+
+
+def _extract_markdown_links(body: str, source_doc: str) -> list[tuple[str, str, str]]:
+    """Extract Markdown links to other ``.md`` files.
+
+    Returns a list of ``(source_doc, target_doc, link_text)`` tuples ready
+    for ``executemany`` into the ``edges`` table. Only relative ``.md`` links
+    are captured; ``http(s)://``, ``mailto:``, ``tel:`` and pure-anchor
+    (``#``) links are skipped because they point outside the wiki graph.
+
+    Relative targets are resolved against ``source_doc``'s directory, with
+    ``..`` segments popped from the resolved stack so cross-directory
+    citations (e.g. ``../../decisions/001.md``) land on the right path.
+    """
+    links: list[tuple[str, str, str]] = []
+    for match in _MD_LINK_RE.finditer(body):
+        text = match.group(1).strip()
+        target = match.group(2).strip()
+        # Skip external links, anchors, and non-md links.
+        if target.startswith(("http://", "https://", "#", "mailto:", "tel:")):
+            continue
+        if not target.endswith(".md"):
+            continue
+        # Strip a leading ``./`` so the join logic below is uniform.
+        if target.startswith("./"):
+            target = target[2:]
+        # Resolve relative to source doc's directory, honouring ``..``.
+        source_dir = source_doc.rsplit("/", 1)[0] if "/" in source_doc else ""
+        resolved_parts = source_dir.split("/") if source_dir else []
+        for part in target.split("/"):
+            if part == "..":
+                if resolved_parts:
+                    resolved_parts.pop()
+            else:
+                resolved_parts.append(part)
+        target_path = "/".join(resolved_parts)
+        links.append((source_doc, target_path, text))
+    return links
 
 
 def _chunk_to_row(parsed: ParsedDocument, chunk: Chunk) -> DocumentChunk:
@@ -250,9 +340,33 @@ def build_index(cfg: LoreWikiConfig, *, rebuild: bool = False) -> IndexerStats:
         )
         stats.nodes_written = len(nodes)
 
+        # Document summaries (one per doc, not per chunk). Fully rebuilt each
+        # run — same rationale as hierarchy: cheap to rebuild, always
+        # consistent with the on-disk corpus. We use ``parsed.doc_type``
+        # (normalised in ``parse_markdown``) rather than re-reading
+        # ``metadata.get("type")`` so the coercion rules live in one place.
+        conn.execute("DELETE FROM doc_summaries")
+        for parsed in parsed_docs:
+            summary = _generate_summary(parsed, cleaned_bodies.get(parsed.path, ""))
+            conn.execute(
+                "INSERT INTO doc_summaries (doc_path, summary, doc_type) VALUES (?, ?, ?)",
+                (parsed.path, summary, parsed.doc_type),
+            )
+
+        # Knowledge-graph edges: extracted from Markdown links
+        # [text](target.md). Rebuilt each run alongside summaries.
+        conn.execute("DELETE FROM edges")
+        for parsed in parsed_docs:
+            links = _extract_markdown_links(parsed.body, parsed.path)
+            if links:
+                conn.executemany(
+                    "INSERT INTO edges (source_doc, target_doc, link_text) VALUES (?, ?, ?)",
+                    links,
+                )
+
         set_meta(conn, "last_indexed_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
         set_meta(conn, "wiki_path", str(wiki_path))
-        set_meta(conn, "schema_version", "2")
+        set_meta(conn, "schema_version", "3")
         conn.commit()
 
     stats.duration_seconds = time.perf_counter() - started

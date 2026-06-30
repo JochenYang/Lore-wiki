@@ -49,12 +49,59 @@ language-localised equivalents in whatever language the user is
 using. The LLM should match by *intent* (recall / save a note /
 browse the structure), not by exact keyword match.
 
+## Auto-Trigger Rules (DO NOT ASK, JUST SEARCH)
+
+You should **automatically** call `lorewiki search` without asking the
+user for permission, in these situations:
+
+1. **Unfamiliar API** — if you're about to write code that calls an
+   API, framework, or library you're not 100% sure about, search first.
+   ```
+   # Before writing: wx.login(...)  →  search "wx.login" first
+   lorewiki search "wx.login" --top-k 3
+   ```
+
+2. **User mentions a concept** — if the user asks about "登录流程",
+   "幂等设计", "限流方案", "retry strategy", or any domain concept,
+   search the wiki **before** answering. The wiki may have team-specific
+   decisions,踩坑记录, or API docs that are more accurate than your
+   training data.
+
+3. **About to guess** — if you find yourself about to write code based
+   on assumption or vague memory, **stop and search**. The wiki exists
+   to prevent exactly this kind of hallucination.
+
+4. **Error pattern encountered** — if you or the user encounter an error,
+   search for known issues and solutions:
+   ```
+   lorewiki search "<error message keywords>" --top-k 5
+   # Or search specifically for lessons learned:
+   # (when --type filter is available)
+   lorewiki search "<problem description>" --top-k 5
+   ```
+
+5. **Before suggesting a design pattern** — if you're about to recommend
+   "use retry with exponential backoff" or "implement idempotency key",
+   search the wiki first. The team may already have a documented pattern
+   with specific parameters, code examples, and known pitfalls.
+
+**Do NOT ask the user "should I search the wiki?"** — just search. The
+cost of a search is ~3ms; the cost of hallucinating wrong API usage is
+a broken build and lost trust. If the wiki has nothing relevant (`hits
+== []`), proceed with your best judgment and mention "wiki has no docs
+on this".
+
+**After searching**: if the search returns relevant docs, use
+`lorewiki show <doc_path> --raw` to read the full content before
+writing code. The search returns summaries; you need the full doc for
+implementation details.
+
 ## Prerequisites
 
 The `lorewiki` CLI must be on the user's PATH. Check with:
 
 ```powershell
-lorewiki --version    # expect: LoreWiki 0.1.0 (or newer)
+lorewiki --version    # expect: LoreWiki 0.5.0 (or newer)
 ```
 
 If missing:
@@ -593,3 +640,11 @@ lorewiki clean    --path "<WIKI>" [--dry-run] [--no-backup]                     
 | "store these N pages / scrape this site"                | Drop the dir under the topic, then `lorewiki index`           |
 | "import my entire <some-tool> docs folder"              | `lorewiki topic create <name> --source <docs-folder>`          |
 | "why does this query return no results?"                 | Re-run with `--mode bm25` to inspect scores                   |
+
+## MCP Server & Auto-Inject (for advanced setups)
+
+LoreWiki also ships an **MCP server** (`lorewiki mcp serve`) and an
+**auto-inject** command (`lorewiki inject`) for tools that support
+these integration patterns. See the README's "LLM Integration" section
+for setup details. If you're reading this skill, you don't need them —
+the skill is the universal fallback.

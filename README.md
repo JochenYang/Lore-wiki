@@ -18,7 +18,7 @@
 
 [![uv](https://img.shields.io/badge/uv-pkg%20%2B%20tool-5C2D91?logo=astral&logoColor=white&style=for-the-badge)](https://docs.astral.sh/uv/)
 [![ruff](https://img.shields.io/badge/ruff-0%20errors-D7FF64?logo=ruff&logoColor=black&style=for-the-badge)](https://docs.astral.sh/ruff/)
-[![pytest](https://img.shields.io/badge/pytest-336%20passed-0A9EDC?logo=pytest&logoColor=white&style=for-the-badge)](tests/)
+[![pytest](https://img.shields.io/badge/pytest-368%20passed-0A9EDC?logo=pytest&logoColor=white&style=for-the-badge)](tests/)
 [![License](https://img.shields.io/badge/License-MIT-22B14C?style=for-the-badge)](LICENSE)
 
 ---
@@ -344,19 +344,106 @@ Restart opencode and the agent will auto-trigger the skill on cues like
 ├─────────────────────────────────────────────────────────────┤
 │  Indexer  │  Retriever (BM25 + Hierarchy + RRF)  │  LLM    │
 ├─────────────────────────────────────────────────────────────┤
-│        SQLite + FTS5 (documents · docs_fts · hierarchy)     │
+│  SQLite + FTS5 (documents · docs_fts · hierarchy · edges)  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 See `docs/lorewiki dev document.md` for the full design plan and
 `docs/critique/phase-{0..6}.md` for per-phase self-critique notes.
 
+## LLM Integration
+
+LoreWiki supports three layers of LLM integration, from most seamless
+to most universal. All three can coexist — pick the one your tool
+supports.
+
+### Layer 1: MCP Server (auto-discovery)
+
+For MCP-compatible tools (Claude Desktop, Cursor, Continue.dev), the
+LLM **automatically discovers** lorewiki's tools — no rules or skills
+needed.
+
+```bash
+# Install with MCP support
+pip install 'lorewiki[mcp]'
+
+# Start the MCP server (stdio transport)
+lorewiki mcp serve
+```
+
+**Claude Desktop config** — add to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "lorewiki": {
+      "command": "lorewiki",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+The LLM will see 3 tools: `search` (find docs), `show` (read full doc +
+related docs), `tree` (browse hierarchy). Tool descriptions tell the
+LLM when to call them.
+
+### Layer 2: Auto-Inject (transparent context)
+
+For tools with hook support (opencode, custom scripts), inject
+relevant wiki context at session start — the LLM doesn't even need to
+know lorewiki exists.
+
+```bash
+# Scan project code → extract keywords → search wiki → output context block
+lorewiki inject --project . --format markdown
+
+# Use in opencode session-start hook:
+lorewiki inject --project . >> "$CONTEXT_FILE"
+
+# Use in .cursorrules or CLAUDE.md:
+$(lorewiki inject --project . --format markdown)
+```
+
+The injected block looks like:
+
+```markdown
+## Knowledge Base Context (auto-injected)
+
+Based on your project's code, the following wiki docs may be relevant:
+- **wx.login** [API] (api/open-api/login/wx.login.md): 调用接口获取登录凭证code
+- **wx.request** [API] (api/network/request/wx.request.md): 发起HTTPS网络请求
+
+Use `lorewiki show <doc_path>` to read full content.
+```
+
+### Layer 3: opencode Skill (universal fallback)
+
+For all other tools, install the skill that tells the LLM when and how
+to use lorewiki:
+
+```bash
+lorewiki install --all    # install to all detected AI tool directories
+```
+
+The skill includes **auto-trigger rules** — the LLM should search the
+wiki without asking when it encounters an unfamiliar API, a user
+mentions a concept, or it's about to guess.
+
+### Three-layer comparison
+
+| Layer | Setup              | LLM awareness           | Best for                  |
+|-------|--------------------|-------------------------|---------------------------|
+| MCP   | One config entry   | Knows tools exist       | Claude Desktop, Cursor    |
+| Inject | One hook line     | Doesn't know, context just there | opencode, custom    |
+| Skill | `lorewiki install` | Knows from skill rules  | All other tools           |
+
 ## Development
 
 ```bash
 pip install -e ".[dev]"
 ruff check lorewiki skills tests  # lint
-pytest -q                        # 241 unit + integration tests
+pytest -q                        # 368 unit + integration tests
 pytest --cov=lorewiki            # coverage report
 ```
 

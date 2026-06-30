@@ -37,6 +37,10 @@ class ParsedDocument:
     tags: list[str] = field(default_factory=list)
     owner: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Frontmatter ``type`` field: API | guide | lesson | decision | null.
+    # Used to populate ``doc_summaries.doc_type`` at index time so the
+    # retriever can filter / bucket documents without re-parsing source files.
+    doc_type: str | None = None
 
 
 def parse_markdown(file_path: Path, *, rel_to: Path | None = None) -> ParsedDocument:
@@ -71,6 +75,12 @@ def parse_markdown(file_path: Path, *, rel_to: Path | None = None) -> ParsedDocu
     owner = metadata.get("owner")
     if owner is not None and not isinstance(owner, str):
         owner = str(owner)
+    # Normalise frontmatter ``type`` to a plain string. YAML loaders may
+    # return non-string scalars (e.g. unquoted values parsed as bool/int);
+    # we coerce to str so the downstream column stays TEXT-typed.
+    doc_type = metadata.get("type")
+    if doc_type is not None and not isinstance(doc_type, str):
+        doc_type = str(doc_type)
 
     return ParsedDocument(
         path=rel_path,
@@ -80,6 +90,7 @@ def parse_markdown(file_path: Path, *, rel_to: Path | None = None) -> ParsedDocu
         tags=tags,
         owner=owner,
         metadata=metadata,
+        doc_type=doc_type,
     )
 
 

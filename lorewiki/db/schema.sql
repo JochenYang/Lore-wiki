@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 INSERT OR IGNORE INTO schema_version(version) VALUES (1);
 INSERT OR IGNORE INTO schema_version(version) VALUES (2);
+INSERT OR IGNORE INTO schema_version(version) VALUES (3);
 
 CREATE TABLE IF NOT EXISTS documents (
     rowid INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,3 +107,29 @@ CREATE TABLE IF NOT EXISTS meta (
     value TEXT NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Document summaries: one row per document (not per chunk).
+-- Generated at index time from frontmatter description, first paragraph,
+-- or first N chars of cleaned body. search returns these instead of
+-- chunk snippets so LLM can quickly scan which docs are relevant.
+CREATE TABLE IF NOT EXISTS doc_summaries (
+    doc_path TEXT PRIMARY KEY,
+    summary TEXT NOT NULL,
+    doc_type TEXT,                    -- API | guide | lesson | decision | null
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_doc_summaries_type ON doc_summaries(doc_type);
+
+-- Knowledge graph edges: extracted from Markdown links [text](target.md)
+-- at index time. Lets `show` output related_docs and helps LLM navigate
+-- along citation chains.
+CREATE TABLE IF NOT EXISTS edges (
+    source_doc TEXT NOT NULL,
+    target_doc TEXT NOT NULL,
+    link_text TEXT,
+    FOREIGN KEY(source_doc) REFERENCES doc_summaries(doc_path) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_doc);
+CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_doc);
