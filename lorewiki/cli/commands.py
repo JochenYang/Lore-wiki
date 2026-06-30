@@ -328,18 +328,23 @@ def search(
                     "retriever": h.retriever,
                 }
             # Enrich with summary and doc_type from doc_summaries table.
+            # Gracefully degrade on older indexes that lack the table —
+            # the snippet fallback below covers that case.
             with open_db(db_path, auto_init=False) as conn:
-                placeholders = ",".join("?" * len(seen_docs))
-                rows = conn.execute(
-                    f"SELECT doc_path, summary, doc_type FROM doc_summaries "
-                    f"WHERE doc_path IN ({placeholders})",
-                    tuple(seen_docs.keys()),
-                ).fetchall()
-                for row in rows:
-                    entry = seen_docs.get(row["doc_path"])
-                    if entry:
-                        entry["summary"] = row["summary"]
-                        entry["doc_type"] = row["doc_type"]
+                try:
+                    placeholders = ",".join("?" * len(seen_docs))
+                    rows = conn.execute(
+                        f"SELECT doc_path, summary, doc_type FROM doc_summaries "
+                        f"WHERE doc_path IN ({placeholders})",
+                        tuple(seen_docs.keys()),
+                    ).fetchall()
+                    for row in rows:
+                        entry = seen_docs.get(row["doc_path"])
+                        if entry:
+                            entry["summary"] = row["summary"]
+                            entry["doc_type"] = row["doc_type"]
+                except sqlite3.OperationalError:
+                    pass  # Table not on this index yet; rebuild to enable.
             # Ensure every entry has at least a truncated snippet as summary
             # (for docs not yet in doc_summaries — e.g. old indexes).
             for h in hits:
