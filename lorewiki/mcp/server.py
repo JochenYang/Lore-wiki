@@ -277,19 +277,33 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     elif name == "show":
         doc_path = arguments.get("doc_path", "")
         with open_db(cfg.db_path, auto_init=False) as conn:
-            # Pick the first chunk (chunk_index ASC) as the entry point;
-            # the full body is reconstructed by concatenating chunks at
-            # index time, so chunk 0 carries the canonical cleaned content.
-            row = conn.execute(
-                "SELECT doc_path, title, heading_path, module, content "
-                "FROM documents WHERE doc_path = ? ORDER BY chunk_index LIMIT 1",
+            # Fetch ALL chunks and concatenate so long docs are returned
+            # in full. A single doc may span multiple chunks (split on H2
+            # boundaries at index time); chunk 0 carries the H1 banner and
+            # breadcrumb prefix, subsequent chunks the body sections.
+            rows = conn.execute(
+                "SELECT chunk_index, title, heading_path, module, content "
+                "FROM documents WHERE doc_path = ? ORDER BY chunk_index",
                 (doc_path,),
-            ).fetchone()
-            if row is None:
+            ).fetchall()
+            if not rows:
                 return [TextContent(type="text", text=f"Document not found: {doc_path}")]
 
-            body = cleaning.strip_breadcrumb_prefix(row["content"])
-            body = cleaning.strip_translation_footer(body)
+            # Join chunks with double newlines so section boundaries remain
+            # visible. Strip the breadcrumb prefix only from the first chunk
+            # (it's redundant once chunks are joined); strip the
+            # translation footer from each chunk in case it leaked in.
+            joined_parts: list[str] = []
+            for i, row in enumerate(rows):
+                chunk_text = row["content"]
+                if i == 0:
+                    chunk_text = cleaning.strip_breadcrumb_prefix(chunk_text)
+                chunk_text = cleaning.strip_translation_footer(chunk_text)
+                if chunk_text.strip():
+                    joined_parts.append(chunk_text)
+            body = "\n\n".join(joined_parts)
+            # First chunk carries the doc-level metadata (title, heading_path).
+            first = rows[0]
 
             # Related docs come from the ``edges`` knowledge-graph table
             # (Markdown [text](target.md) links captured at index time).
@@ -309,9 +323,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 pass
 
             payload = {
-                "doc_path": row["doc_path"],
-                "title": cleaning.clean_title(row["title"]),
-                "module": row["module"],
+                "doc_path": doc_path,
+                "title": cleaning.clean_title(first["title"]),
+                "module": first["module"] or "",
+                "chunk_count": len(rows),
                 "content": body.rstrip(),
                 "related_docs": related,
             }
