@@ -4,6 +4,13 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.7.4] — 2026-07-01
+
+### Docs
+- Sync README/SKILL.md with v0.7.2 (373 tests, 6 MCP tools).
+- Document mcp optional dependency: `pip install 'lorewiki[mcp]'`.
+- Update expected version in SKILL.md.
+
 ## [0.7.2] — 2026-07-01
 
 ### Fixed
