@@ -121,11 +121,11 @@ def indexed_wiki(isolated_dir: Path) -> Path:
 
 
 @pytest.mark.asyncio
-async def test_list_tools_returns_three_tools() -> None:
-    """The MCP server must advertise exactly search / show / tree."""
+async def test_list_tools_returns_six_tools() -> None:
+    """list_tools exposes 3 read tools (search/show/tree) + 3 write tools (add/update/delete)."""
     tools = await list_tools()
     names = {t.name for t in tools}
-    assert names == {"search", "show", "tree"}
+    assert names == {"search", "show", "tree", "add", "update", "delete"}
 
 
 @pytest.mark.asyncio
@@ -239,3 +239,119 @@ async def test_call_tool_unknown_tool_returns_error(indexed_wiki: Path) -> None:
     result = await call_tool("nonexistent", {})
     assert len(result) == 1
     assert "Unknown tool" in result[0].text
+
+
+# ---------------------------------------------------------------------------
+# call_tool — add / update / delete (write paths)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_call_tool_add_creates_doc_and_indexed(
+    indexed_wiki: Path, tmp_path: Path,
+) -> None:
+    """add writes a .md file, fills frontmatter, re-indexes, and the new
+    doc becomes immediately searchable.
+    """
+    result = await call_tool(
+        "add",
+        {
+            "body": "# New Note\n\nA fresh knowledge card written via MCP.",
+            "module": "scratch",
+            "tags": ["test", "mcp"],
+        },
+    )
+    assert len(result) == 1
+    payload = json.loads(result[0].text)
+    assert payload["status"] == "ok"
+    assert payload["module"] == "scratch"
+    # The new doc should now be retrievable via search.
+    found = await call_tool("search", {"query": "knowledge card", "top_k": 5})
+    found_payload = json.loads(found[0].text)
+    assert any(
+        entry["doc_path"].endswith("new-note.md") for entry in found_payload
+    )
+
+
+@pytest.mark.asyncio
+async def test_call_tool_add_refuses_overwrite_without_force(
+    indexed_wiki: Path,
+) -> None:
+    """Adding to a doc_path that already exists returns a clear refusal
+    unless ``force=true`` is passed.
+    """
+    # First add succeeds.
+    await call_tool(
+        "add",
+        {"body": "# Dup\n\nFirst version.", "module": "dup"},
+    )
+    # Second add at the same title fails.
+    result = await call_tool(
+        "add",
+        {"body": "# Dup\n\nSecond version.", "module": "dup"},
+    )
+    assert "already exists" in result[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test_call_tool_update_modifies_existing_doc(
+    indexed_wiki: Path,
+) -> None:
+    """update replaces only the fields the caller passes; search reflects
+    the change immediately.
+    """
+    # Seed.
+    await call_tool(
+        "add",
+        {"body": "# Upd\n\nOriginal body.", "module": "upd", "tags": ["v1"]},
+    )
+    # Update body only — tags/title/module preserved.
+    result = await call_tool(
+        "update",
+        {"doc_path": "upd/upd.md", "body": "# Upd\n\nUpdated body content."},
+    )
+    payload = json.loads(result[0].text)
+    assert payload["status"] == "ok"
+    # Verify the new body is now indexed.
+    found = await call_tool("search", {"query": "Updated body content", "top_k": 5})
+    found_payload = json.loads(found[0].text)
+    assert any(
+        "Updated body content" in entry.get("summary", "")
+        or entry["doc_path"].endswith("upd.md")
+        for entry in found_payload
+    )
+
+
+@pytest.mark.asyncio
+async def test_call_tool_delete_removes_doc(indexed_wiki: Path) -> None:
+    """delete unlinks the file, purges index rows, and search no longer
+    returns the deleted doc.
+    """
+    # Seed a doc that we can afford to lose (the fixture's existing
+    # docs are referenced by other tests).
+    await call_tool(
+        "add",
+        {"body": "# Del\n\nDisposable doc for delete test.", "module": "del"},
+    )
+    result = await call_tool(
+        "delete", {"doc_path": "del/del.md", "force": True},
+    )
+    payload = json.loads(result[0].text)
+    assert payload["status"] == "ok"
+    assert payload["deleted"] is True
+    # Verify the doc is no longer retrievable.
+    found = await call_tool("search", {"query": "Disposable doc", "top_k": 5})
+    found_payload = json.loads(found[0].text)
+    assert not any(
+        entry["doc_path"].endswith("del.md") for entry in found_payload
+    )
+
+
+@pytest.mark.asyncio
+async def test_call_tool_list_tools_includes_write_paths(
+    indexed_wiki: Path,
+) -> None:
+    """list_tools exposes 6 tools: read (search/show/tree) + write (add/update/delete)."""
+    tools = await list_tools()
+    names = {t.name for t in tools}
+    assert {"search", "show", "tree", "add", "update", "delete"} <= names

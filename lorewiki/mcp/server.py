@@ -13,15 +13,28 @@ The server runs on stdio (standard MCP transport).
 from __future__ import annotations
 
 import json
+import pathlib
+import re
+from datetime import datetime, timezone
 from typing import Any
 
+import frontmatter
+from loguru import logger as log
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
+from lorewiki.cli.add import (
+    _build_frontmatter,
+    _is_safe_target,
+    _resolve_wiki_root,
+    _strip_surrogates,
+    slugify,
+)
 from lorewiki.config import load_config
 from lorewiki.db.connection import open_db
-from lorewiki.indexer import cleaning
+from lorewiki.indexer import build_index, cleaning
+from lorewiki.indexer.parser import parse_markdown
 from lorewiki.retriever import run_search
 
 server: Server = Server("lorewiki")
@@ -90,6 +103,105 @@ async def list_tools() -> list[Tool]:
                         "default": None,
                     },
                 },
+            },
+        ),
+        Tool(
+            name="add",
+            description=(
+                "Create a new knowledge note in the wiki. "
+                "Writes a Markdown file with frontmatter (title, module, tags) and "
+                "auto-reindexes so the new doc is immediately retrievable via search(). "
+                "Use this to persist a learning, decision, postmortem, or any "
+                "small chunk of knowledge. The body is required; title and module "
+                "are auto-derived if omitted."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Document title (auto-derived from first H1 if omitted).",
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "Markdown body content.",
+                    },
+                    "module": {
+                        "type": "string",
+                        "description": "Module / category directory (default 'root').",
+                        "default": "root",
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of free-form tags (helps discovery).",
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": "Overwrite an existing file at the target path.",
+                        "default": False,
+                    },
+                },
+                "required": ["body"],
+            },
+        ),
+        Tool(
+            name="update",
+            description=(
+                "Modify an existing knowledge note in place. "
+                "Pass a doc_path plus any subset of body / title / module / tags. "
+                "Omitted options preserve the existing value, so you can update just "
+                "the body, just the title, or any combination. Auto-reindexes after."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_path": {
+                        "type": "string",
+                        "description": "Relative path of the doc to update.",
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "New Markdown body (omit to preserve existing).",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "New title (omit to preserve existing).",
+                    },
+                    "module": {
+                        "type": "string",
+                        "description": "New module (omit to preserve existing).",
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "New tags list (omit to preserve existing).",
+                    },
+                },
+                "required": ["doc_path"],
+            },
+        ),
+        Tool(
+            name="delete",
+            description=(
+                "Delete a knowledge note from the wiki. "
+                "Removes the file and purges stale index rows so search() no longer "
+                "returns it. Use this to clean up outdated or wrong docs."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_path": {
+                        "type": "string",
+                        "description": "Relative path of the doc to delete.",
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": "Skip confirmation (always pass true for MCP calls).",
+                        "default": True,
+                    },
+                },
+                "required": ["doc_path"],
             },
         ),
     ]
@@ -229,6 +341,230 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             ]
             text = json.dumps({"nodes": nodes_json}, ensure_ascii=False, indent=2)
             return [TextContent(type="text", text=text)]
+
+    elif name == "add":
+        body = arguments.get("body", "")
+        title = arguments.get("title", "")
+        module = arguments.get("module", "root")
+        tags = arguments.get("tags", []) or []
+        force = bool(arguments.get("force", False))
+
+        raw_body = _strip_surrogates(body)
+        # Title resolution: explicit > first H1 > slug of first 64 chars.
+        h1_match = re.search(r"^#\s+(.+?)\s*$", raw_body, re.MULTILINE)
+        h1 = cleaning.clean_title(h1_match.group(1)) if h1_match else ""
+        final_title = (title or "").strip() or h1 or slugify(raw_body[:64])
+
+        wiki_root = _resolve_wiki_root(None)
+        if not wiki_root.is_dir():
+            return [TextContent(
+                type="text",
+                text=f"wiki path not found: {wiki_root}",
+            )]
+
+        module_slug = slugify(module) if module != "root" else "root"
+        title_slug = slugify(final_title)
+        target_dir = wiki_root / module_slug
+        target_path = target_dir / f"{title_slug}.md"
+
+        if not _is_safe_target(wiki_root, target_path):
+            return [TextContent(
+                type="text",
+                text=f"refusing to write outside wiki root: {target_path}",
+            )]
+        if target_path.exists() and not force:
+            return [TextContent(
+                type="text",
+                text=f"file already exists: {target_path} (pass force=true to overwrite)",
+            )]
+
+        metadata = _build_frontmatter(
+            title=final_title, module=module_slug, tags=tags,
+        )
+        post = frontmatter.Post(raw_body, **metadata)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            target_path.write_text(
+                frontmatter.dumps(post) + "\n", encoding="utf-8",
+            )
+        except (OSError, UnicodeEncodeError) as exc:
+            target_path.unlink(missing_ok=True)
+            return [TextContent(type="text", text=f"write failed: {exc}")]
+
+        # Re-index so the new doc is immediately searchable.
+        try:
+            build_index(cfg, rebuild=False)
+        except Exception as exc:
+            # Indexing failure is non-fatal — file was written, index will
+            # catch up on the next ``lorewiki index`` run.
+            return [TextContent(
+                type="text",
+                text=f"wrote {target_path} but reindex failed: {exc}",
+            )]
+
+        return [TextContent(
+            type="text",
+            text=json.dumps(
+                {
+                    "status": "ok",
+                    "doc_path": str(target_path.relative_to(wiki_root)),
+                    "title": final_title,
+                    "module": module_slug,
+                    "tags": tags,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )]
+
+    elif name == "update":
+        from lorewiki.cli.helpers import resolve_doc_target  # noqa: PLC0415
+
+        doc_path_arg = arguments.get("doc_path", "")
+        wiki_root = _resolve_wiki_root(None)
+        if not wiki_root.is_dir():
+            return [TextContent(type="text", text=f"wiki path not found: {wiki_root}")]
+
+        try:
+            target_path = resolve_doc_target(doc_path_arg, wiki_root)
+        except ValueError as exc:
+            return [TextContent(type="text", text=f"path-traversal blocked: {exc}")]
+
+        if not target_path.exists():
+            return [TextContent(
+                type="text",
+                text=f"doc not found: {doc_path_arg}",
+            )]
+
+        # Read the existing doc and its frontmatter.
+        try:
+            parsed = parse_markdown(target_path, rel_to=wiki_root)
+        except (OSError, UnicodeDecodeError) as exc:
+            return [TextContent(type="text", text=f"read failed: {exc}")]
+
+        old_meta = dict(parsed.metadata or {})
+        new_body = arguments.get("body")
+        new_title = arguments.get("title")
+        new_module = arguments.get("module")
+        new_tags = arguments.get("tags")
+
+        # Build the merged payload — only override fields the caller passed.
+        final_body = _strip_surrogates(new_body) if new_body is not None else parsed.body
+        final_title = (new_title or "").strip() or old_meta.get("title", parsed.title)
+        final_module = (
+            new_module.strip()
+            if (new_module and new_module.strip())
+            else old_meta.get("module", parsed.module or "root")
+        )
+        final_tags = list(new_tags) if new_tags is not None else parsed.tags
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        merged_meta: dict[str, Any] = {**old_meta}
+        merged_meta["title"] = final_title
+        merged_meta["module"] = final_module
+        merged_meta["tags"] = final_tags
+        # Preserve created_at (seed to today if legacy doc lacks it).
+        merged_meta.setdefault("created_at", today)
+        merged_meta["last_review"] = today
+
+        post = frontmatter.Post(final_body, **merged_meta)
+        try:
+            target_path.write_text(
+                frontmatter.dumps(post) + "\n", encoding="utf-8",
+            )
+        except (OSError, UnicodeEncodeError) as exc:
+            return [TextContent(type="text", text=f"write failed: {exc}")]
+
+        try:
+            build_index(cfg, rebuild=False)
+        except Exception as exc:
+            return [TextContent(
+                type="text",
+                text=f"updated {target_path} but reindex failed: {exc}",
+            )]
+
+        return [TextContent(
+            type="text",
+            text=json.dumps(
+                {
+                    "status": "ok",
+                    "doc_path": doc_path_arg,
+                    "title": final_title,
+                    "module": final_module,
+                    "tags": final_tags,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )]
+
+    elif name == "delete":
+        from lorewiki.cli.helpers import resolve_doc_target  # noqa: PLC0415
+
+        doc_path_arg = arguments.get("doc_path", "")
+        # ``force`` defaults to True in the schema — MCP calls are programmatic
+        # and shouldn't require a y/N confirmation.
+        force = bool(arguments.get("force", True))
+
+        wiki_root = _resolve_wiki_root(None)
+        if not wiki_root.is_dir():
+            return [TextContent(type="text", text=f"wiki path not found: {wiki_root}")]
+
+        try:
+            target_path = resolve_doc_target(doc_path_arg, wiki_root)
+        except ValueError as exc:
+            return [TextContent(type="text", text=f"path-traversal blocked: {exc}")]
+
+        if not target_path.exists():
+            return [TextContent(type="text", text=f"doc not found: {doc_path_arg}")]
+
+        if not force:
+            # Defensive: never let MCP delete without explicit force.
+            return [TextContent(
+                type="text",
+                text="refusing to delete without force=true",
+            )]
+
+        target_path.unlink()
+        # Purge stale index rows + refresh hierarchy.
+        # Use cfg.wiki_path (the same root build_index uses) to compute
+        # the doc_path key — calling _resolve_wiki_root() again here
+        # can return a different resolved root and skew the relative path.
+        # IMPORTANT: use as_posix() so Windows backslashes don't sneak into
+        # the POSIX-style ``del/del.md`` keys stored in the documents table.
+        wiki_root_for_path = cfg.wiki_path
+        if cfg.db_path is not None:
+            doc_path_db = target_path.relative_to(wiki_root_for_path).as_posix()
+            purge_db = pathlib.Path(cfg.db_path)
+            try:
+                with open_db(purge_db, auto_init=False) as purge_conn:
+                    purge_conn.execute(
+                        "DELETE FROM documents WHERE doc_path = ?",
+                        (doc_path_db,),
+                    )
+                    purge_conn.commit()
+            except Exception as exc:
+                log.warning("delete purge failed for {}: {}", doc_path_db, exc)
+        try:
+            build_index(cfg, rebuild=False)
+        except Exception as exc:
+            return [TextContent(
+                type="text",
+                text=f"deleted {target_path} but reindex failed: {exc}",
+            )]
+
+        return [TextContent(
+            type="text",
+            text=json.dumps(
+                {
+                    "status": "ok",
+                    "doc_path": doc_path_arg,
+                    "deleted": True,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
