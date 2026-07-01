@@ -19,6 +19,8 @@
 [![uv](https://img.shields.io/badge/uv-pkg%20%2B%20tool-5C2D91?logo=astral&logoColor=white&style=for-the-badge)](https://docs.astral.sh/uv/)
 [![ruff](https://img.shields.io/badge/ruff-0%20errors-D7FF64?logo=ruff&logoColor=black&style=for-the-badge)](https://docs.astral.sh/ruff/)
 [![pytest](https://img.shields.io/badge/pytest-373%20passed-0A9EDC?logo=pytest&logoColor=white&style=for-the-badge)](tests/)
+
+<!-- Test commit for release workflow validation -->
 [![License](https://img.shields.io/badge/License-MIT-22B14C?style=for-the-badge)](LICENSE)
 
 ---
