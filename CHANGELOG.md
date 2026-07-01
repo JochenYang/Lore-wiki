@@ -4,6 +4,15 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.7.1] — 2026-07-01
+
+### Fixed
+- **Cross-platform doc_path output**: Windows' `Path.relative_to()` returns
+  paths with backslashes (e.g. `mcp-test\\mcp.md`), but the database stores
+  POSIX-style paths. `add` (MCP + CLI) and `update` (CLI --raw) now use
+  `.as_posix()` so JSON consumers see consistent POSIX paths on all
+  platforms.
+
 ## [0.7.0] — 2026-07-01
 
 MCP server: add write tools (add/update/delete).
