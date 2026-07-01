@@ -4,6 +4,19 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.7.2] — 2026-07-01
+
+### Fixed
+- **MCP `show` returns full doc**: Previously fetched only `chunk_index=0`
+  (LIMIT 1), so long docs that span multiple chunks returned only the
+  first ~240 chars. Now fetches all chunks ordered by chunk_index and
+  concatenates with double newlines, stripping the breadcrumb prefix
+  only from the first chunk. Adds a ``chunk_count`` field so the LLM
+  knows the doc was fully reconstructed.
+
+  Verified with `wx.request.md`: 14 chunks, 37974 chars → now returns
+  `chunk_count=14`, `content` length 37960.
+
 ## [0.7.1] — 2026-07-01
 
 ### Fixed
