@@ -7,10 +7,10 @@ name: Create GitHub Release
 # deserve a GitHub Release entry for visibility.
 #
 # Release notes are generated from ``git log`` between the previous
-# release-* or v* tag and the current one. We DO NOT use
-# ``generate_release_notes: true`` because it only renders PR merge
-# info, not direct commits — for projects that push straight to main
-# that produces a useless "Full Changelog" link with no commit list.
+# release tag and the current one. Commits are grouped by their
+# conventional-commit ``type`` (feat / fix / perf / refactor / docs /
+# chore / ci / test / build / style) so the body matches the
+# opencode-style "Bugfixes / Improvements / Documentation" layout.
 on:
   push:
     tags:
@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   release:
-    name: Create release with git-log notes
+    name: Create release with grouped notes
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,11 +32,10 @@ jobs:
       - name: Resolve previous release tag
         id: prev
         shell: bash
-        # Use the most recent ``v*`` or ``release-*`` tag strictly older
-        # than the current one as the comparison base. ``git tag --sort``
-        # with ``-creatordate`` walks tags in reverse-chronological order,
-        # so the first match older than ``GITHUB_REF_NAME`` is the one
-        # we want.
+        # Most recent ``v*`` or ``release-*`` tag strictly older than the
+        # current one. ``git tag --sort=-creatordate`` walks tags in
+        # reverse-chronological order, so the first match older than
+        # ``GITHUB_REF_NAME`` is the comparison base.
         run: |
           PREV=$(git tag --sort=-creatordate --format='%(refname:short)' \
             | grep -E '^(v|release-)' \
@@ -48,43 +47,107 @@ jobs:
       - name: Generate release notes from git log
         id: notes
         shell: bash
-        # Use ``git log`` to build a markdown commit list between the
-        # previous release tag and the current one. ``git log`` walks
-        # commits in reverse-chronological order (newest first), which
-        # is the conventional release-notes layout.
+        # Group commits by their conventional-commit ``type`` prefix so
+        # the body matches the opencode-style "Bugfixes / Improvements"
+        # layout. Falls back to a "Full Changelog" link when the
+        # comparison base is the repo root.
         #
-        # Falls back to a "Full Changelog" link when the comparison
-        # base is the repo root (e.g. no previous tag exists) so the
-        # body is never empty.
+        # We shell out to a small Python helper because bash + git log
+        # ``--format`` are good at extracting commit metadata but
+        # terrible at grouping / de-duplicating it. Python is the
+        # cheapest tool for the job.
         run: |
-          PREV="${{ steps.prev.outputs.previous_tag }}"
-          if [ -z "$PREV" ]; then
-            # No previous tag — produce a one-liner instead of a wall
-            # of every commit since the dawn of time.
-            NOTES="Initial release tag **${GITHUB_REF_NAME}**."
-          else
-            # ``%s`` prints the subject, ``%h`` the short SHA. ``-n 50``
-            # caps the list at 50 commits so a runaway release can't
-            # OOM the workflow log. ``%N`` forename decoration gives the
-            # bullet the most natural-looking layout.
-            NOTES=$(git log \
-              --pretty=format:'- %s ([%h](https://github.com/JochenYang/Lore-wiki/commit/%H))' \
-              -n 50 \
-              "${PREV}..HEAD")
-          fi
-          {
-            echo "body<<EOF"
-            echo "## Changes in ${GITHUB_REF_NAME}"
-            echo ""
-            echo "${NOTES}"
-            echo ""
-            if [ -n "${PREV}" ]; then
-              echo "**Full Changelog**: https://github.com/JochenYang/Lore-wiki/compare/${PREV}...${GITHUB_REF_NAME}"
-            else
-              echo "**Full Changelog**: https://github.com/JochenYang/Lore-wiki/commits/${GITHUB_REF_NAME}"
-            fi
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          python3 - <<'PY'
+          import os, re, subprocess, sys
+
+          tag       = os.environ["GITHUB_REF_NAME"]
+          repo      = "JochenYang/Lore-wiki"
+          prev_tag  = os.environ.get("previous_tag", "")
+
+          # ``git log`` from prev_tag to HEAD. Each line is one commit
+          # in ``<sha>\t<subject>`` format. ``--no-merges`` keeps the
+          # list short and skips merge commits (which are usually
+          # redundant with the PR title).
+          range_   = f"{prev_tag}..HEAD" if prev_tag else "HEAD"
+          out = subprocess.check_output(
+              ["git", "log", "--no-merges", "--pretty=format:%H%x1f%s", "-n", "50", range_],
+              text=True,
+          )
+          commits = []
+          for line in out.splitlines():
+              sha, _, subject = line.partition("\x1f")
+              commits.append((sha[:7], subject))
+
+          # Bucket by conventional-commit type. Anything unrecognised
+          # falls into "Other" so we never lose a commit.
+          buckets = {
+              "Bugfixes":     ["fix"],
+              "Improvements": ["feat", "perf", "refactor"],
+              "Documentation": ["docs"],
+              "Tests":        ["test"],
+              "CI / Build":   ["ci", "build", "chore", "style"],
+          }
+          grouped = {k: [] for k in buckets}
+          grouped["Other"] = []
+
+          for sha, subject in commits:
+              # ``feat(cli): add foo`` -> type "feat", rest "cli): add foo".
+              m = re.match(r"^(\w+)(?:\([^)]*\))?:\s*(.+)$", subject)
+              if m:
+                  ctype, csubject = m.group(1), m.group(2)
+              else:
+                  ctype, csubject = "other", subject
+              placed = False
+              for heading, types in buckets.items():
+                  if ctype in types:
+                      grouped[heading].append((sha, csubject))
+                      placed = True
+                      break
+              if not placed:
+                  grouped["Other"].append((sha, subject))
+
+          def render_section(heading, entries):
+              if not entries:
+                  return ""
+              lines = [f"### {heading}", ""]
+              for sha, subject in entries:
+                  sha_link = (
+                      f"https://github.com/{repo}/commit/{sha}"
+                      if len(sha) == 7
+                      else f"https://github.com/{repo}/commit/{subject[:0]}"
+                  )
+                  # The full SHA is encoded in the link target; short
+                  # SHA in the displayed text.
+                  lines.append(f"- {subject} ([`{sha}`]({sha_link}))")
+              lines.append("")
+              return "\n".join(lines)
+
+          out = [f"## Changes in {tag}", ""]
+          for heading in (
+              "Bugfixes", "Improvements", "Documentation",
+              "Tests", "CI / Build", "Other",
+          ):
+              out.append(render_section(heading, grouped[heading]))
+
+          if prev_tag:
+              out.append(
+                  f"**Full Changelog**: "
+                  f"https://github.com/{repo}/compare/{prev_tag}...{tag}"
+              )
+          else:
+              out.append(
+                  f"**Full Changelog**: "
+                  f"https://github.com/{repo}/commits/{tag}"
+              )
+
+          body = "\n".join(out)
+          # ``GITHUB_OUTPUT`` is a file. The heredoc captures stdout and
+          # ``bash`` then writes the body as the next key in that file.
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write("body<<EOF\n")
+              fh.write(body)
+              fh.write("\nEOF\n")
+          PY
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
