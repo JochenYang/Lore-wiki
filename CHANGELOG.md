@@ -4,6 +4,23 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] — 2026-07-01
+
+MCP server: add write tools (add/update/delete).
+
+### Added
+- **MCP `add` tool**: Create a new knowledge note via MCP. Auto-reindexes so the
+  doc is immediately retrievable via search.
+- **MCP `update` tool**: Modify an existing note. Omitted fields preserve
+  existing values (partial update).
+- **MCP `delete` tool**: Remove a note and purge its index rows.
+- 5 new tests covering add/update/delete + list_tools check.
+
+### Fixed
+- **Windows path separator bug in MCP delete**: `Path.relative_to()`
+  returns `del\del.md` on Windows, but `documents.doc_path` stores
+  POSIX-style `del/del.md`. Use `as_posix()` to normalize.
+
 ## [0.6.0] — 2026-06-30
 
 Three-layer LLM auto-trigger architecture + knowledge base improvements.
