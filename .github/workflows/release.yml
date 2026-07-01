@@ -26,12 +26,13 @@ jobs:
       - name: Read CHANGELOG section for this release
         id: changelog
         shell: bash
-        # ``release-0.7.4`` -> version ``0.7.4``.
-        # Walk CHANGELOG.md line by line, capture the section under
-        # ``## [<version>]`` until the next ``## [`` (next version heading).
-        # Falls back to the full CHANGELOG if the version isn't found.
+        # ``release-0.7.4-doc-sync`` -> version ``0.7.4``.
+        # Strip the ``release-`` prefix and any suffix like ``-doc-sync``
+        # (the maintainer convention for docs-only releases).
         run: |
-          VERSION="${GITHUB_REF_NAME#release-}"
+          FULL="${GITHUB_REF_NAME#release-}"
+          # Drop everything after the first ``-`` (e.g. ``-doc-sync``).
+          VERSION="${FULL%%-*}"
           echo "Looking for CHANGELOG section: [${VERSION}]"
           BODY=$(python3 -c '
           import re, sys
