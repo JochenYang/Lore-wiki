@@ -1,0 +1,61 @@
+name: Create GitHub Release
+
+# Trigger on tag pushes that DON'T start with v (e.g. "release-0.7.4").
+# Version tags (v*) are handled by publish.yml which builds + uploads to PyPI.
+# This workflow is for documentation-only / non-publishing releases
+# (e.g. sync commits, CHANGELOG bumps, README refreshes) that still
+# deserve a GitHub Release entry for visibility.
+on:
+  push:
+    tags:
+      - "release-*"
+
+permissions:
+  contents: write   # required to create a release
+
+jobs:
+  release:
+    name: Create release from CHANGELOG
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read CHANGELOG section for this release
+        id: changelog
+        shell: bash
+        run: |
+          # ``release-0.7.4`` -> version ``0.7.4``
+          VERSION="${GITHUB_REF_NAME#release-}"
+          # Extract the section between "## [<version>] — <date>" and the next
+          # "## [" heading. Falls back to the whole CHANGELOG if the section
+          # cannot be located (e.g. version not yet documented).
+          BODY=$(awk -v ver="[${VERSION}]" '
+            $0 ~ "^## " ver { in_section = 1; next }
+            in_section && /^## \[/ { exit }
+            in_section { print }
+          ' CHANGELOG.md)
+          if [ -z "$BODY" ]; then
+            BODY=$(cat CHANGELOG.md)
+          fi
+          {
+            echo "body<<EOF"
+            echo "$BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Release ${{ github.ref_name }}"
+          body: ${{ steps.changelog.outputs.body }}
+          draft: false
+          prerelease: false
+          # Skip the auto-generated tarball / zip — the wheel/sdist are
+          # published via publish.yml; this release is docs-only.
+          fail_on_unmatched_files: true
+          files: |
+            CHANGELOG.md
