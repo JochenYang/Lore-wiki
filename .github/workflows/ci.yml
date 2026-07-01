@@ -25,9 +25,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install package + dev dependencies
+        # Include [mcp] so the optional-dependency MCP tests can run.
+        # test_mcp_server.py uses pytest.importorskip to skip gracefully
+        # if mcp is absent, so this is always safe.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          python -m pip install -e ".[dev,mcp]"
 
       - name: Run linter
         run: python -m ruff check lorewiki skills tests
