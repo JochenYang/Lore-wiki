@@ -17,7 +17,7 @@
 
 [![uv](https://img.shields.io/badge/uv-pkg%20%2B%20tool-5C2D91?logo=astral&logoColor=white&style=for-the-badge)](https://docs.astral.sh/uv/)
 [![ruff](https://img.shields.io/badge/ruff-0%20errors-D7FF64?logo=ruff&logoColor=black&style=for-the-badge)](https://docs.astral.sh/ruff/)
-[![pytest](https://img.shields.io/badge/pytest-368%20passed-0A9EDC?logo=pytest&logoColor=white&style=for-the-badge)](../tests/)
+[![pytest](https://img.shields.io/badge/pytest-373%20passed-0A9EDC?logo=pytest&logoColor=white&style=for-the-badge)](../tests/)
 [![License](https://img.shields.io/badge/License-MIT-22B14C?style=for-the-badge)](../LICENSE)
 
 ---
@@ -347,7 +347,7 @@ lorewiki mcp serve
 }
 ```
 
-配置后 LLM 会看到 3 个工具：`search`（搜文档）、`show`（读全文 + 关联文档）、`tree`（浏览层级）。工具描述会告诉 LLM 何时调用。
+配置后 LLM 会看到 6 个工具：`search`（搜文档）、`show`（读全文 + 关联文档）、`tree`（浏览层级）、`add`（创建笔记）、`update`（修改笔记）、`delete`（删除笔记）。工具描述会告诉 LLM 何时调用。需要安装 `mcp` 可选依赖：`pip install 'lorewiki[mcp]'`。
 
 ### 第二层：自动注入（透明上下文）
 
@@ -399,7 +399,7 @@ Skill 包含**自动触发规则**——LLM 遇到不熟悉的 API、用户提�
 ```bash
 pip install -e ".[dev]"
 ruff check lorewiki skills tests  # lint
-pytest -q                        # 368 个单元 + 集成测试
+pytest -q                        # 373 个单元 + 集成测试
 pytest --cov=lorewiki            # 覆盖率报告
 ```
 

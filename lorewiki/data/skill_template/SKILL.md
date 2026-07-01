@@ -101,7 +101,7 @@ implementation details.
 The `lorewiki` CLI must be on the user's PATH. Check with:
 
 ```powershell
-lorewiki --version    # expect: LoreWiki 0.5.0 (or newer)
+lorewiki --version    # expect: LoreWiki 0.7.2 (or newer)
 ```
 
 If missing:

@@ -18,7 +18,7 @@
 
 [![uv](https://img.shields.io/badge/uv-pkg%20%2B%20tool-5C2D91?logo=astral&logoColor=white&style=for-the-badge)](https://docs.astral.sh/uv/)
 [![ruff](https://img.shields.io/badge/ruff-0%20errors-D7FF64?logo=ruff&logoColor=black&style=for-the-badge)](https://docs.astral.sh/ruff/)
-[![pytest](https://img.shields.io/badge/pytest-368%20passed-0A9EDC?logo=pytest&logoColor=white&style=for-the-badge)](tests/)
+[![pytest](https://img.shields.io/badge/pytest-373%20passed-0A9EDC?logo=pytest&logoColor=white&style=for-the-badge)](tests/)
 [![License](https://img.shields.io/badge/License-MIT-22B14C?style=for-the-badge)](LICENSE)
 
 ---
@@ -384,9 +384,11 @@ lorewiki mcp serve
 }
 ```
 
-The LLM will see 3 tools: `search` (find docs), `show` (read full doc +
-related docs), `tree` (browse hierarchy). Tool descriptions tell the
-LLM when to call them.
+The LLM will see 6 tools: `search` (find docs), `show` (read full doc +
+related docs), `tree` (browse hierarchy), `add` (create new note),
+`update` (modify existing note), `delete` (remove note). Tool
+descriptions tell the LLM when to call them. Requires the `mcp`
+optional dependency: `pip install 'lorewiki[mcp]'`.
 
 ### Layer 2: Auto-Inject (transparent context)
 
@@ -443,7 +445,7 @@ mentions a concept, or it's about to guess.
 ```bash
 pip install -e ".[dev]"
 ruff check lorewiki skills tests  # lint
-pytest -q                        # 368 unit + integration tests
+pytest -q                        # 373 unit + integration tests
 pytest --cov=lorewiki            # coverage report
 ```
 
