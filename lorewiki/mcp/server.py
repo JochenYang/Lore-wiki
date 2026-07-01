@@ -407,7 +407,11 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             text=json.dumps(
                 {
                     "status": "ok",
-                    "doc_path": str(target_path.relative_to(wiki_root)),
+                    # ``as_posix()`` so Windows backslashes don't leak into
+                    # the returned payload — matches the POSIX-style keys
+                    # stored in ``documents.doc_path`` and the ``delete``
+                    # tool's input contract.
+                    "doc_path": target_path.relative_to(wiki_root).as_posix(),
                     "title": final_title,
                     "module": module_slug,
                     "tags": tags,

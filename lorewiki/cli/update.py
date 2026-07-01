@@ -123,7 +123,7 @@ def _merge_metadata(
 
 
 def _emit_update_result(
-    target: Path, merged: dict[str, Any], *, raw: bool
+    target: Path, wiki_root: Path, merged: dict[str, Any], *, raw: bool
 ) -> None:
     """Print the success Panel (or ``--raw`` JSON) for a completed update."""
     final_title = str(merged.get("title", target.stem))
@@ -134,7 +134,9 @@ def _emit_update_result(
             json.dumps(
                 {
                     "ok": True,
-                    "path": str(target),
+                    # ``as_posix()`` so Windows backslashes don't leak into
+                    # machine-readable output — cross-platform consistency.
+                    "path": target.relative_to(wiki_root).as_posix(),
                     "title": final_title,
                     "module": final_module,
                     "tags": final_tags,
@@ -298,7 +300,7 @@ def update(
         )
 
     # ---- 8. output ---------------------------------------------------------
-    _emit_update_result(target, merged, raw=raw)
+    _emit_update_result(target, wiki_root, merged, raw=raw)
 
 
 __all__ = ["update"]

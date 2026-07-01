@@ -335,7 +335,9 @@ def add(
                     "ok": True,
                     "title": final_title,
                     "module": module_slug,
-                    "path": str(target_path),
+                    # ``as_posix()`` so Windows backslashes don't sneak into
+                    # machine-readable output — cross-platform consistency.
+                    "path": target_path.relative_to(wiki_root).as_posix(),
                     "tags": tags,
                 },
                 ensure_ascii=False,
