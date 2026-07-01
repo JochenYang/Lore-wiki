@@ -33,23 +33,24 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#release-}"
           echo "Looking for CHANGELOG section: [${VERSION}]"
-          BODY=$(python3 -c "
+          BODY=$(python3 -c '
           import re, sys
           version = sys.argv[1]
-          with open('CHANGELOG.md', encoding='utf-8') as f:
+          with open("CHANGELOG.md", encoding="utf-8") as f:
               text = f.read()
-          # Match the version heading and capture everything until the
-          # next version heading or end of file.
+          # Capture from ``## [<version>]`` up to the next ``## [`` heading
+          # or end of file. The lazy quantifier ``.*?`` keeps us matching
+          # the FIRST version heading after the start, not the last.
           pattern = re.compile(
-              r'^## \[{}\].*?(?=^## \[|\Z'.format(re.escape(version)),
+              r"^## \[" + re.escape(version) + r"\][^\n]*\n(.*?)(?=^## \[|\Z)",
               re.MULTILINE | re.DOTALL,
           )
           m = pattern.search(text)
-          body = m.group(0).rstrip() if m else text
+          body = m.group(1).rstrip() if m else text
           if not body.strip():
               body = text
           sys.stdout.write(body)
-          " "$VERSION")
+          ' "$VERSION")
           {
             echo "body<<EOF"
             echo "$BODY"
