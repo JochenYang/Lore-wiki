@@ -206,6 +206,17 @@ def update(
         str | None,
         typer.Option("--path", "-p", help="Project / wiki path."),
     ] = None,
+    topic: Annotated[
+        str | None,
+        typer.Option(
+            "--topic",
+            "-T",
+            help="Topic name. Update within this topic's vault instead of the active topic. "
+            "Use this when the note belongs to a specific second-brain topic "
+            "(e.g. '--topic warm-kitchen-time' for project-specific notes, "
+            "'--topic shared' for cross-project patterns).",
+        ),
+    ] = None,
     raw: Annotated[
         bool,
         typer.Option("--raw", help="Emit a machine-readable JSON object on success."),
@@ -219,7 +230,7 @@ def update(
     retrievable via ``lorewiki search``.
     """
     # ---- 1. resolve paths ---------------------------------------------------
-    wiki_root = _resolve_wiki_root(path)
+    wiki_root = _resolve_wiki_root(path, topic_arg=topic)
     if not wiki_root.is_dir():
         console.print(f"[red]wiki path not found:[/red] {wiki_root}")
         raise typer.Exit(code=2)
@@ -288,7 +299,11 @@ def update(
 
     # ---- 7. re-index --------------------------------------------------------
     try:
-        cfg = resolve_config(path)
+        if topic is not None and topic.strip():
+            from lorewiki.config import load_config as _update_load_config  # noqa: PLC0415
+            cfg = _update_load_config(overrides={"topic": topic.strip()})
+        else:
+            cfg = resolve_config(path)
         build_index(cfg, rebuild=False)
     except Exception as exc:
         # A failed reindex shouldn't swallow a successful write. Surface

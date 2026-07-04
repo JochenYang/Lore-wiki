@@ -98,6 +98,17 @@ def delete(
         str | None,
         typer.Option("--path", "-p", help="Project / wiki path."),
     ] = None,
+    topic: Annotated[
+        str | None,
+        typer.Option(
+            "--topic",
+            "-T",
+            help="Topic name. Delete from this topic's vault instead of the active topic. "
+            "Use this when the note belongs to a specific second-brain topic "
+            "(e.g. '--topic warm-kitchen-time' for project-specific notes, "
+            "'--topic shared' for cross-project patterns).",
+        ),
+    ] = None,
     raw: Annotated[
         bool,
         typer.Option("--raw", help="Emit a machine-readable JSON object on success."),
@@ -110,7 +121,7 @@ def delete(
     incremental ``build_index`` refreshes the hierarchy.
     """
     # ---- 1. resolve paths ---------------------------------------------------
-    wiki_root = _resolve_wiki_root(path)
+    wiki_root = _resolve_wiki_root(path, topic_arg=topic)
     if not wiki_root.is_dir():
         console.print(f"[red]wiki path not found:[/red] {wiki_root}")
         raise typer.Exit(code=2)
@@ -151,7 +162,13 @@ def delete(
             raise typer.Exit(code=0)
 
     # ---- 5. compute DB doc_path + delete file ------------------------------
-    cfg = resolve_config(path)
+    # If --topic was given, override the cfg.db_path so build_index and
+    # the DB purge target the right topic vault.
+    if topic is not None and topic.strip():
+        from lorewiki.config import load_config as _delete_load_config  # noqa: PLC0415
+        cfg = _delete_load_config(overrides={"topic": topic.strip()})
+    else:
+        cfg = resolve_config(path)
     # Resolve with strict=True (file confirmed to exist above) so the
     # relative path matches the exact on-disk casing the indexer stored
     # (Windows is case-insensitive on the FS layer but the DB stores the
