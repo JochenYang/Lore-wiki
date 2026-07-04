@@ -12,6 +12,7 @@ The server runs on stdio (standard MCP transport).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import pathlib
 import re
@@ -471,7 +472,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         # Re-index so the new doc is immediately searchable.
         try:
-            build_index(cfg, rebuild=False)
+            await asyncio.to_thread(build_index, cfg, rebuild=False)
         except Exception as exc:
             # Indexing failure is non-fatal — file was written, index will
             # catch up on the next ``lorewiki index`` run.
@@ -564,7 +565,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             return [TextContent(type="text", text=f"write failed: {exc}")]
 
         try:
-            build_index(cfg, rebuild=False)
+            await asyncio.to_thread(build_index, cfg, rebuild=False)
         except Exception as exc:
             return [TextContent(
                 type="text",
@@ -639,7 +640,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             except Exception as exc:
                 log.warning("delete purge failed for {}: {}", doc_path_db, exc)
         try:
-            build_index(cfg, rebuild=False)
+            await asyncio.to_thread(build_index, cfg, rebuild=False)
         except Exception as exc:
             return [TextContent(
                 type="text",

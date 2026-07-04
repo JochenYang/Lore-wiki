@@ -138,10 +138,9 @@ CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_doc);
 -- Note: ``doc_vec`` is a virtual table from the optional sqlite-vec
 -- extension (``vec0`` module). It's NOT declared here because that
 -- would crash init_db on machines without the extension. Instead,
--- init_db tries to load sqlite-vec and creates ``doc_vec`` with the
--- 384-dim BAAI/bge-small-en-v1.5 schema at init time; if the extension
--- isn't loadable, init_db silently skips the step and the indexer
--- logs a warning when it tries (and fails) to populate embeddings.
+-- the indexer's ``_populate_vector_index`` creates it lazily at
+-- index time (see ``lorewiki/indexer/indexer.py``). If the extension
+-- isn't installed, the indexer logs a warning and falls back to mix.
 -- The schema_version row in the meta table tracks which features
 -- are present (schema v4 = vector table available when sqlite-vec is
 -- installed, v3 = vector only when sqlite-vec is missing).

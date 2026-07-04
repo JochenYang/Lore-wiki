@@ -60,11 +60,12 @@ def init_db(db_path: Path) -> None:
     close explicitly, otherwise on Windows the db file stays locked and
     ``tempfile.TemporaryDirectory`` cleanup fails.
 
-    The ``doc_vec`` virtual table is created outside the main
-    ``executescript(schema_sql)`` call because the ``vec0`` module lives
-    in the optional ``sqlite-vec`` extension — when it isn't installed
-    we silently skip the vec table (and vector search will degrade
-    to lexical-only). Loading the extension is idempotent and cheap.
+    The ``doc_vec`` virtual table is NOT created here — it is created
+    lazily in ``_populate_vector_index`` (see :mod:`lorewiki.indexer.indexer`)
+    at index time. This avoids a Windows thread-pool deadlock that occurs
+    when importing ``sqlite_vec`` inside :func:`asyncio.to_thread`. If the
+    ``sqlite-vec`` extension isn't installed, vector search degrades to
+    lexical-only.
     """
     db_path.parent.mkdir(parents=True, exist_ok=True)
     schema_sql = _load_schema_sql()
@@ -73,26 +74,25 @@ def init_db(db_path: Path) -> None:
         _apply_pragmas(conn)
         conn.executescript(schema_sql)
         conn.commit()
-        # Try to create the doc_vec virtual table via the sqlite-vec
-        # extension. If the extension isn't installed, this is a silent
-        # no-op; the user gets a warning at index time and vector
-        # retrieval falls back to ``mix`` at search time.
-        try:
-            conn.enable_load_extension(True)
-            import sqlite_vec  # type: ignore[import-not-found]
-            conn.load_extension(sqlite_vec.loadable_path())
-        except Exception as exc:  # noqa: BLE001
-            log.debug("sqlite-vec extension unavailable, skipping doc_vec: {}", exc)
+        # doc_vec is created lazily in _populate_vector_index at index
+        # time — see the docstring above for the rationale.
     finally:
         conn.close()
     log.debug("initialised db at {}", db_path)
 
 
 def _get_connection(db_path: Path) -> sqlite3.Connection:
-    """Get or create a cached connection to the database."""
+    """Get or create a cached connection to the database.
+
+    ``check_same_thread=False`` allows the connection to be shared between
+    the async event-loop thread and ``asyncio.to_thread`` worker threads.
+    LoreWiki is single-process with explicit transaction boundaries via
+    ``open_db`` — file-level locking from SQLite itself still prevents
+    concurrent writes, so this is safe.
+    """
     if db_path in _CONNECTION_CACHE:
         return _CONNECTION_CACHE[db_path]
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
     _apply_pragmas(conn)
     _CONNECTION_CACHE[db_path] = conn
     return conn

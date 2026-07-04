@@ -4,6 +4,22 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.0] — 2026-07-04
+
+### Fixed
+- **MCP CRUD hang on Windows**: Three root causes resolved
+  - `build_index()` now runs via `asyncio.to_thread`, keeping the
+    MCP event loop responsive during reindex
+  - `import sqlite_vec` at module load time prevents Windows
+    thread-pool deadlock from C extension DllMain init
+  - `check_same_thread=False` on cached SQLite connections so the
+    main event-loop thread can reuse connections created in worker
+    threads
+
+### Changed
+- Stable 1.0.0 release — CLI + MCP API surface frozen
+- Development status promoted to Production/Stable
+
 ## [0.9.0] — 2026-07-04
 
 ### Added

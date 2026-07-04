@@ -18,6 +18,14 @@ from lorewiki.utils.logger import get_logger
 
 log = get_logger(__name__)
 
+# Import sqlite_vec at module load time (main thread) to avoid a Windows
+# thread-pool deadlock from importing inside asyncio.to_thread.
+try:
+    import sqlite_vec  # noqa: F401
+    _HAS_SQLITE_VEC = True
+except ImportError:
+    _HAS_SQLITE_VEC = False
+
 IGNORE_DIRS = {".git", ".lorewiki", "__pycache__", ".venv", ".idea", ".vscode", "node_modules"}
 MARKDOWN_EXTS = {".md", ".markdown"}
 
@@ -412,27 +420,22 @@ def _populate_vector_index(conn, stats: "IndexerStats") -> None:
     """
     try:
         from fastembed import TextEmbedding  # noqa: PLC0415
-        import sqlite_vec  # noqa: PLC0415
     except ImportError as exc:
         log.debug("vector deps missing ({}); skipping embedding", exc)
         return
-    # Load the sqlite-vec extension on this connection. If the table
-    # doesn't exist (older index, schema < 4) this is a silent no-op
-    # because the extension-load is idempotent.
+    if not _HAS_SQLITE_VEC:
+        log.debug("sqlite_vec not available; skipping vector index")
+        return
     try:
         conn.enable_load_extension(True)
         conn.load_extension(sqlite_vec.loadable_path())
     except Exception as exc:
         log.debug("could not load sqlite-vec extension: {}", exc)
         return
-    # Check that doc_vec exists; the CREATE VIRTUAL TABLE is idempotent
-    # at index time but if the schema was created before this migration
-    # was added, the table may not be there.
-    if not conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='doc_vec'"
-    ).fetchone():
-        log.debug("doc_vec table missing; skipping embedding (rebuild index to create)")
-        return
+    # Create doc_vec if missing — the CREATE VIRTUAL TABLE is idempotent.
+    conn.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS doc_vec USING vec0(embedding float[384])"
+    )
 
     # Pull every chunk's rowid and cleaned body for embedding.
     rows = conn.execute(
