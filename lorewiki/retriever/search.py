@@ -7,7 +7,7 @@ a single change to the dispatch logic propagates everywhere.
 
 from __future__ import annotations
 
-import contextlib
+from loguru import logger as log
 
 from lorewiki.config import LoreWikiConfig
 from lorewiki.db.models import SearchHit
@@ -56,20 +56,37 @@ def run_search(
         "bm25": BM25Retriever.from_config(cfg),
         "hierarchy": HierarchyRetriever.from_config(cfg),
     }
+    # ``vector`` is added lazily — only imported if the user explicitly
+    # requested vector mode. This keeps the core CLI's import graph
+    # free of fastembed / sqlite-vec for users who never use --mode
+    # vector.
+    vector_retr = None
+    if mode == "vector":
+        try:
+            vector_retr = VectorRetriever.from_config(cfg)
+            retrievers["vector"] = vector_retr
+        except Exception as exc:  # noqa: BLE001
+            # No fastembed / sqlite-vec installed, or the model failed
+            # to load. Surface a clear log line and fall back to mix
+            # so the CLI never errors.
+            log.warning(
+                "vector retriever unavailable ({}); falling back to mix",
+                exc,
+            )
+            mode = "mix"
 
     if mode == "bm25":
         return list(retrievers["bm25"].search(query, top_k=top_k))
     if mode == "hierarchy":
         return list(retrievers["hierarchy"].search(query, top_k=top_k))
-    if mode == "vector":
-        # Phase 6 deliverable. Surface a constructor so callers that
-        # want to inspect the placeholder still get something; the
-        # ``.search`` call will raise NotImplementedError on its own.
-        # For now, fall back to mix so the CLI never throws on a
-        # ``--mode vector`` request.
-        with contextlib.suppress(NotImplementedError):
-            VectorRetriever.from_config(cfg)  # construction is cheap; the
-                                              # .search() call is what raises.
+    if mode == "vector" and vector_retr is not None:
+        # If the vector backend returned no hits (empty index, OOV
+        # query, etc.), gracefully fall back to mix so the LLM still
+        # has something to look at.
+        vec_hits = list(vector_retr.search(query, top_k=top_k))
+        if vec_hits:
+            return vec_hits
+        log.debug("vector mode returned 0 hits, falling back to mix")
         mode = "mix"
 
     per_retriever = {

@@ -366,7 +366,12 @@ def build_index(cfg: LoreWikiConfig, *, rebuild: bool = False) -> IndexerStats:
 
         set_meta(conn, "last_indexed_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
         set_meta(conn, "wiki_path", str(wiki_path))
-        set_meta(conn, "schema_version", "3")
+        set_meta(conn, "schema_version", "4")
+        # Vector embeddings (schema v4) — populate doc_vec if the
+        # ``[vector]`` extra is installed. Failures here don't fail the
+        # whole index: BM25 + hierarchy remain intact, and ``--mode
+        # vector`` will gracefully fall back to ``mix``.
+        _populate_vector_index(conn, stats)
         conn.commit()
 
     stats.duration_seconds = time.perf_counter() - started
@@ -393,6 +398,78 @@ def _doc_needs_rewrite(conn, doc_path: str, new_rows: list[DocumentChunk]) -> bo
     if len(existing) != len(new_rows):
         return True
     return any(existing.get(row.chunk_index) != row.content_hash for row in new_rows)
+
+
+def _populate_vector_index(conn, stats: "IndexerStats") -> None:
+    """Encode every chunk in the current index with fastembed + write
+    to the ``doc_vec`` virtual table.
+
+    Skipped entirely if fastembed / sqlite-vec are not installed, or if
+    the ``doc_vec`` table is missing (older index). On any encoding
+    failure we keep the lexical index intact and surface a warning,
+    so vector retrieval degrades to ``mix`` rather than blocking the
+    rest of the pipeline.
+    """
+    try:
+        from fastembed import TextEmbedding  # noqa: PLC0415
+        import sqlite_vec  # noqa: PLC0415
+    except ImportError as exc:
+        log.debug("vector deps missing ({}); skipping embedding", exc)
+        return
+    # Load the sqlite-vec extension on this connection. If the table
+    # doesn't exist (older index, schema < 4) this is a silent no-op
+    # because the extension-load is idempotent.
+    try:
+        conn.enable_load_extension(True)
+        conn.load_extension(sqlite_vec.loadable_path())
+    except Exception as exc:
+        log.debug("could not load sqlite-vec extension: {}", exc)
+        return
+    # Check that doc_vec exists; the CREATE VIRTUAL TABLE is idempotent
+    # at index time but if the schema was created before this migration
+    # was added, the table may not be there.
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='doc_vec'"
+    ).fetchone():
+        log.debug("doc_vec table missing; skipping embedding (rebuild index to create)")
+        return
+
+    # Pull every chunk's rowid and cleaned body for embedding.
+    rows = conn.execute(
+        "SELECT rowid, content FROM documents ORDER BY rowid"
+    ).fetchall()
+    if not rows:
+        return
+    bodies = [r["content"] for r in rows]
+    rowids = [r["rowid"] for r in rows]
+
+    # Clear + re-populate. The chunk-count scales linearly with
+    # embedding latency, so the first build_index call on a large
+    # vault is dominated by model inference (~10-50ms / chunk on CPU
+    # for bge-small-en-v1.5). The previous doc_vec rows are dropped
+    # wholesale; we don't try to merge because content-hash-based
+    # change detection (see _doc_needs_rewrite) handles the chunks that
+    # survived verbatim, and an in-place UPDATE would require us to
+    # round-trip every existing embedding back through the model.
+    conn.execute("DELETE FROM doc_vec")
+
+    import os
+    model_name = os.environ.get("LOREWIKI_VECTOR_MODEL", "BAAI/bge-small-en-v1.5")
+    log.info("encoding {} chunks with {} (first run downloads ~130 MB)", len(bodies), model_name)
+    try:
+        model = TextEmbedding(model_name=model_name)
+        embeddings = list(model.embed(bodies, show_progress_bar=False))
+    except Exception as exc:
+        log.warning("fastembed encoding failed: {} (vector mode will fall back to mix)", exc)
+        return
+    # ``model.embed`` is a generator yielding one ndarray per input.
+    # Pair each embedding with its rowid and bulk-insert.
+    rows_to_insert = list(zip(rowids, (e.tolist() for e in embeddings)))
+    conn.executemany(
+        "INSERT INTO doc_vec (rowid, embedding) VALUES (?, ?)",
+        rows_to_insert,
+    )
+    log.info("vector index populated with {} embeddings", len(rows_to_insert))
 
 
 __all__ = ["IndexerStats", "build_index", "iter_markdown_files"]
