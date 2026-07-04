@@ -59,6 +59,12 @@ def init_db(db_path: Path) -> None:
     does **not** close the connection — that's a Python stdlib quirk. We must
     close explicitly, otherwise on Windows the db file stays locked and
     ``tempfile.TemporaryDirectory`` cleanup fails.
+
+    The ``doc_vec`` virtual table is created outside the main
+    ``executescript(schema_sql)`` call because the ``vec0`` module lives
+    in the optional ``sqlite-vec`` extension — when it isn't installed
+    we silently skip the vec table (and vector search will degrade
+    to lexical-only). Loading the extension is idempotent and cheap.
     """
     db_path.parent.mkdir(parents=True, exist_ok=True)
     schema_sql = _load_schema_sql()
@@ -67,6 +73,16 @@ def init_db(db_path: Path) -> None:
         _apply_pragmas(conn)
         conn.executescript(schema_sql)
         conn.commit()
+        # Try to create the doc_vec virtual table via the sqlite-vec
+        # extension. If the extension isn't installed, this is a silent
+        # no-op; the user gets a warning at index time and vector
+        # retrieval falls back to ``mix`` at search time.
+        try:
+            conn.enable_load_extension(True)
+            import sqlite_vec  # type: ignore[import-not-found]
+            conn.load_extension(sqlite_vec.loadable_path())
+        except Exception as exc:  # noqa: BLE001
+            log.debug("sqlite-vec extension unavailable, skipping doc_vec: {}", exc)
     finally:
         conn.close()
     log.debug("initialised db at {}", db_path)

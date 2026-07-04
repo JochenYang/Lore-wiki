@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 INSERT OR IGNORE INTO schema_version(version) VALUES (1);
 INSERT OR IGNORE INTO schema_version(version) VALUES (2);
 INSERT OR IGNORE INTO schema_version(version) VALUES (3);
+INSERT OR IGNORE INTO schema_version(version) VALUES (4);
 
 CREATE TABLE IF NOT EXISTS documents (
     rowid INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,3 +134,14 @@ CREATE TABLE IF NOT EXISTS edges (
 
 CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_doc);
 CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_doc);
+
+-- Note: ``doc_vec`` is a virtual table from the optional sqlite-vec
+-- extension (``vec0`` module). It's NOT declared here because that
+-- would crash init_db on machines without the extension. Instead,
+-- init_db tries to load sqlite-vec and creates ``doc_vec`` with the
+-- 384-dim BAAI/bge-small-en-v1.5 schema at init time; if the extension
+-- isn't loadable, init_db silently skips the step and the indexer
+-- logs a warning when it tries (and fails) to populate embeddings.
+-- The schema_version row in the meta table tracks which features
+-- are present (schema v4 = vector table available when sqlite-vec is
+-- installed, v3 = vector only when sqlite-vec is missing).

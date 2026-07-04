@@ -28,7 +28,12 @@ def test_init_db_creates_tables(tmp_path: Path) -> None:
             "doc_summaries",
             "edges",
         } <= tables
-        assert schema_version(conn) == 3
+        assert schema_version(conn) == 4
+        # ``doc_vec`` is a sqlite-vec virtual table; created lazily at
+        # index time if the extension loads. We don't assert its
+        # presence here because the test env may not have the
+        # extension installed. The build_index code path that
+        # creates it is exercised in the integration tests.
 
 
 def test_meta_upsert(tmp_path: Path) -> None:
