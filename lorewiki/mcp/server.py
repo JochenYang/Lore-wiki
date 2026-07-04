@@ -162,7 +162,9 @@ async def list_tools() -> list[Tool]:
                 "Modify an existing knowledge note in place. "
                 "Pass a doc_path plus any subset of body / title / module / tags. "
                 "Omitted options preserve the existing value, so you can update just "
-                "the body, just the title, or any combination. Auto-reindexes after."
+                "the body, just the title, or any combination. Auto-reindexes after.\n\n"
+                "IMPORTANT: always pass ``topic`` when the note belongs to a "
+                "specific second-brain topic (same logic as the add tool)."
             ),
             inputSchema={
                 "type": "object",
@@ -188,6 +190,10 @@ async def list_tools() -> list[Tool]:
                         "items": {"type": "string"},
                         "description": "New tags list (omit to preserve existing).",
                     },
+                    "topic": {
+                        "type": "string",
+                        "description": "Topic name to write to. Same semantics as the add tool.",
+                    },
                 },
                 "required": ["doc_path"],
             },
@@ -197,7 +203,9 @@ async def list_tools() -> list[Tool]:
             description=(
                 "Delete a knowledge note from the wiki. "
                 "Removes the file and purges stale index rows so search() no longer "
-                "returns it. Use this to clean up outdated or wrong docs."
+                "returns it. Use this to clean up outdated or wrong docs.\n\n"
+                "IMPORTANT: pass ``topic`` to target a specific second-brain topic "
+                "(same logic as add/update)."
             ),
             inputSchema={
                 "type": "object",
@@ -210,6 +218,10 @@ async def list_tools() -> list[Tool]:
                         "type": "boolean",
                         "description": "Skip confirmation (always pass true for MCP calls).",
                         "default": True,
+                    },
+                    "topic": {
+                        "type": "string",
+                        "description": "Topic name to target. Same semantics as the add tool.",
                     },
                 },
                 "required": ["doc_path"],
@@ -272,6 +284,38 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                     if entry:
                         entry["summary"] = row["summary"]
                         entry["doc_type"] = row["doc_type"]
+
+                # Enrich with related_docs from the edges table. Each
+                # top-K doc gets up to 5 outgoing links. We fetch in
+                # one SQL to avoid N+1 round-trips; the ``seen`` set
+                # keeps the payload from referencing a doc we already
+                # returned as a primary hit.
+                if seen:
+                    edge_rows = conn.execute(
+                        f"SELECT source_doc, target_doc, link_text FROM edges "
+                        f"WHERE source_doc IN ({placeholders})",
+                        tuple(seen.keys()),
+                    ).fetchall()
+                    # Group by source_doc, cap at 5 each
+                    rel_count: dict[str, int] = {}
+                    for er in edge_rows:
+                        src = er["source_doc"]
+                        tgt = er["target_doc"]
+                        # Skip if the target is already in the top-K
+                        # set (would just duplicate the link the LLM
+                        # already has).
+                        if tgt in seen:
+                            continue
+                        entry = seen.get(src)
+                        if entry is None:
+                            continue
+                        if rel_count.get(src, 0) >= 5:
+                            continue
+                        entry.setdefault("related_docs", []).append({
+                            "doc_path": tgt,
+                            "context": er["link_text"] or "",
+                        })
+                        rel_count[src] = rel_count.get(src, 0) + 1
 
         # Fallback: for docs not present in doc_summaries (e.g. older
         # indexes built before the table existed), synthesise a short
@@ -459,7 +503,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         from lorewiki.cli.helpers import resolve_doc_target  # noqa: PLC0415
 
         doc_path_arg = arguments.get("doc_path", "")
-        wiki_root = _resolve_wiki_root(None)
+        topic_arg = arguments.get("topic")
+        if topic_arg:
+            _topic_cfg = load_config(overrides={"topic": topic_arg})
+            wiki_root = _topic_cfg.wiki_path
+            cfg = _topic_cfg
+        else:
+            wiki_root = _resolve_wiki_root(None)
         if not wiki_root.is_dir():
             return [TextContent(type="text", text=f"wiki path not found: {wiki_root}")]
 
@@ -543,8 +593,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         # ``force`` defaults to True in the schema — MCP calls are programmatic
         # and shouldn't require a y/N confirmation.
         force = bool(arguments.get("force", True))
-
-        wiki_root = _resolve_wiki_root(None)
+        topic_arg = arguments.get("topic")
+        if topic_arg:
+            _topic_cfg = load_config(overrides={"topic": topic_arg})
+            wiki_root = _topic_cfg.wiki_path
+            cfg = _topic_cfg
+        else:
+            wiki_root = _resolve_wiki_root(None)
         if not wiki_root.is_dir():
             return [TextContent(type="text", text=f"wiki path not found: {wiki_root}")]
 
