@@ -66,7 +66,7 @@ class VectorRetriever(BaseRetriever):
         if self._available is not None:
             return self._available
         try:
-            import sqlite_vec  # noqa: F401
+            import sqlite_vec  # noqa: PLC0415, F401 — lazy import for graceful degradation
         except ImportError:
             log.debug("sqlite-vec not installed; vector retriever is no-op")
             self._available = False
@@ -82,24 +82,24 @@ class VectorRetriever(BaseRetriever):
         """Lazy-load fastembed TextEmbedding once per instance."""
         if self._model is not None:
             return self._model
-        from fastembed import TextEmbedding
+        from fastembed import TextEmbedding  # noqa: PLC0415, I001 — lazy load for speed
         # Default model: BAAI/bge-small-en-v1.5 (384 dims, state-of-the-art
         # on MTEB for its size, recommended by Qdrant). Override with
         # VECTOR_MODEL env var if the user needs something bigger.
-        import os
+        import os  # noqa: PLC0415 — func-scoped
         model_name = os.environ.get("LOREWIKI_VECTOR_MODEL", "BAAI/bge-small-en-v1.5")
         log.info("loading fastembed model {} (first call may download)", model_name)
         self._model = TextEmbedding(model_name=model_name)
         return self._model
 
-    def _open_with_vec(self) -> "sqlite3.Connection | None":
+    def _open_with_vec(self) -> sqlite3.Connection | None:
         """Open a sqlite3 connection with the sqlite-vec extension loaded.
 
         Returns None if the extension can't be loaded (caller should
         gracefully return empty hits).
         """
-        import sqlite3
-        import sqlite_vec
+        import sqlite3  # noqa: PLC0415, I001 — func-scoped
+        import sqlite_vec  # noqa: PLC0415 — lazy load for graceful degradation
         conn = sqlite3.connect(self.db_path)
         try:
             conn.enable_load_extension(True)

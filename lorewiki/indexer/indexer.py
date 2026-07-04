@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -21,7 +22,7 @@ log = get_logger(__name__)
 # Import sqlite_vec at module load time (main thread) to avoid a Windows
 # thread-pool deadlock from importing inside asyncio.to_thread.
 try:
-    import sqlite_vec  # noqa: F401
+    import sqlite_vec
     _HAS_SQLITE_VEC = True
 except ImportError:
     _HAS_SQLITE_VEC = False
@@ -408,7 +409,7 @@ def _doc_needs_rewrite(conn, doc_path: str, new_rows: list[DocumentChunk]) -> bo
     return any(existing.get(row.chunk_index) != row.content_hash for row in new_rows)
 
 
-def _populate_vector_index(conn, stats: "IndexerStats") -> None:
+def _populate_vector_index(conn, stats: IndexerStats) -> None:
     """Encode every chunk in the current index with fastembed + write
     to the ``doc_vec`` virtual table.
 
@@ -456,7 +457,6 @@ def _populate_vector_index(conn, stats: "IndexerStats") -> None:
     # round-trip every existing embedding back through the model.
     conn.execute("DELETE FROM doc_vec")
 
-    import os
     model_name = os.environ.get("LOREWIKI_VECTOR_MODEL", "BAAI/bge-small-en-v1.5")
     log.info("encoding {} chunks with {} (first run downloads ~130 MB)", len(bodies), model_name)
     try:
@@ -467,7 +467,7 @@ def _populate_vector_index(conn, stats: "IndexerStats") -> None:
         return
     # ``model.embed`` is a generator yielding one ndarray per input.
     # Pair each embedding with its rowid and bulk-insert.
-    rows_to_insert = list(zip(rowids, (e.tolist() for e in embeddings)))
+    rows_to_insert = list(zip(rowids, (e.tolist() for e in embeddings), strict=True))
     conn.executemany(
         "INSERT INTO doc_vec (rowid, embedding) VALUES (?, ?)",
         rows_to_insert,

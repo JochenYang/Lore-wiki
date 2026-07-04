@@ -65,7 +65,7 @@ def run_search(
         try:
             vector_retr = VectorRetriever.from_config(cfg)
             retrievers["vector"] = vector_retr
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # No fastembed / sqlite-vec installed, or the model failed
             # to load. Surface a clear log line and fall back to mix
             # so the CLI never errors.
