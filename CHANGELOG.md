@@ -4,6 +4,26 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] — 2026-07-04
+
+### Added
+- `--topic` / `-T` flag on `lorewiki update` and `lorewiki delete`:
+  route updates and deletions to a specific topic, matching the
+  existing add `--topic` flag.
+- `topic` input on MCP `update` and `delete` tools: same semantics,
+  routed via `load_config(overrides=...)`.
+- `related_docs` field on MCP `search` results: each hit now includes
+  a list of related documents discovered via shared tags.
+- **Vector search** (optional): `lorewiki[vector]` extra installs
+  `fastembed>=0.8` and `sqlite-vec>=0.1.6`. When available, `search.py`
+  transparently upgrades BM25 results with KNN vector similarity. The
+  vector index is built during `lorewiki reindex`.
+
+### Changed
+- Database schema bumped to v4 for the `doc_vec` virtual table.
+- `init_db` conditionally loads the `sqlite-vec` extension and creates
+  `doc_vec` at runtime; no crash if the extension is absent.
+
 ## [0.8.0] — 2026-07-04
 
 ### Added
