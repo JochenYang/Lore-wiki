@@ -4,6 +4,26 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] — 2026-07-04
+
+### Added
+- `--topic` / `-T` flag on `lorewiki add`: route the write to a specific
+  topic's vault, ignoring the active topic. Lets LLM agents and users
+  explicitly target project-specific topics (e.g. `--topic warm-kitchen-time`)
+  or the cross-project shared topic (`--topic shared`) without having to
+  switch the active topic first.
+- `topic` parameter on the MCP `add` tool: same semantics as the CLI
+  flag. Tool description now explicitly tells the LLM to pass `topic`
+  for project-specific notes; without it the note lands in whatever
+  topic is active, which is often not the right one.
+
+### Fixed
+- Project-specific knowledge being saved to the wrong topic. The
+  pre-0.8.0 `lorewiki add` and MCP `add` always wrote to the active
+  topic regardless of content, so an LLM saving a踩坑 note while the
+  active topic was `agent-frameworks` would silently land the note
+  there. The `--topic` override fixes this at the tool layer.
+
 ## [0.7.4] — 2026-07-01
 
 ### Docs
