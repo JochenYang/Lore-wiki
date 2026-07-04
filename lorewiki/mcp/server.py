@@ -113,7 +113,12 @@ async def list_tools() -> list[Tool]:
                 "auto-reindexes so the new doc is immediately retrievable via search(). "
                 "Use this to persist a learning, decision, postmortem, or any "
                 "small chunk of knowledge. The body is required; title and module "
-                "are auto-derived if omitted."
+                "are auto-derived if omitted.\n\n"
+                "IMPORTANT: always pass ``topic`` when the note belongs to a "
+                "specific second-brain topic. For project-specific content use "
+                "the project's topic name (e.g. ``warm-kitchen-time``); for "
+                "cross-project patterns use ``shared``. If omitted, the note "
+                "lands in the active topic, which may not be the right one."
             ),
             inputSchema={
                 "type": "object",
@@ -140,6 +145,12 @@ async def list_tools() -> list[Tool]:
                         "type": "boolean",
                         "description": "Overwrite an existing file at the target path.",
                         "default": False,
+                    },
+                    "topic": {
+                        "type": "string",
+                        "description": "Topic name to write to. Use the project's topic for "
+                        "project-specific notes (e.g. 'warm-kitchen-time'), or 'shared' "
+                        "for cross-project patterns. If omitted, uses the active topic.",
                     },
                 },
                 "required": ["body"],
@@ -363,14 +374,22 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         module = arguments.get("module", "root")
         tags = arguments.get("tags", []) or []
         force = bool(arguments.get("force", False))
+        topic_arg = arguments.get("topic")
+        # If topic is provided, route the write to that topic's vault.
+        if topic_arg:
+            from lorewiki.config import load_config as _mcp_load_config  # noqa: PLC0415
+            _topic_cfg = _mcp_load_config(overrides={"topic": topic_arg})
+            wiki_root = _topic_cfg.wiki_path
+            # Also update cfg so build_index targets the right database.
+            cfg = _topic_cfg
+        else:
+            wiki_root = _resolve_wiki_root(None)
 
         raw_body = _strip_surrogates(body)
         # Title resolution: explicit > first H1 > slug of first 64 chars.
         h1_match = re.search(r"^#\s+(.+?)\s*$", raw_body, re.MULTILINE)
         h1 = cleaning.clean_title(h1_match.group(1)) if h1_match else ""
         final_title = (title or "").strip() or h1 or slugify(raw_body[:64])
-
-        wiki_root = _resolve_wiki_root(None)
         if not wiki_root.is_dir():
             return [TextContent(
                 type="text",

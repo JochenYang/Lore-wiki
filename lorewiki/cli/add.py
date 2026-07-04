@@ -27,6 +27,7 @@ from rich.panel import Panel
 
 from lorewiki.cli.apps import app, console, log
 from lorewiki.cli.helpers import resolve_config
+from lorewiki.config import load_config
 from lorewiki.indexer import build_index
 from lorewiki.indexer.patterns import H1_RE
 
@@ -51,9 +52,18 @@ def slugify(text: str, *, max_len: int = 64) -> str:
     return text[:max_len] or "untitled"
 
 
-def _resolve_wiki_root(path_arg: str | None) -> Path:
-    """Return the absolute path of the wiki root the add should land in."""
-    cfg = resolve_config(path_arg)
+def _resolve_wiki_root(path_arg: str | None, topic_arg: str | None = None) -> Path:
+    """Return the absolute path of the wiki root the add should land in.
+    
+    If ``topic_arg`` is given, the write always targets that topic's vault
+    regardless of the active topic. This lets LLM agents explicitly choose
+    which second-brain vault receives the note.
+    """
+    if topic_arg is not None and topic_arg.strip():
+        # Route to a specific topic vault — ignore the active topic.
+        cfg = load_config(overrides={"topic": topic_arg.strip()})
+    else:
+        cfg = resolve_config(path_arg)
     return cfg.wiki_path.resolve()
 
 
@@ -224,6 +234,17 @@ def add(
             help="Project / wiki path. Defaults to the active topic.",
         ),
     ] = None,
+    topic: Annotated[
+        str | None,
+        typer.Option(
+            "--topic",
+            "-T",
+            help="Topic name. Write to this topic's vault instead of the active topic. "
+            "Use this when the note belongs to a specific second-brain topic "
+            "(e.g. '--topic warm-kitchen-time' for project-specific notes, "
+            "'--topic shared' for cross-project patterns).",
+        ),
+    ] = None,
     force: Annotated[
         bool,
         typer.Option(
@@ -260,7 +281,7 @@ def add(
     final_title = title.strip() or _extract_h1(raw_body) or slugify(raw_body[:64])
 
     # ---- 2. resolve paths ---------------------------------------------------
-    wiki_root = _resolve_wiki_root(path)
+    wiki_root = _resolve_wiki_root(path, topic_arg=topic)
     if not wiki_root.is_dir():
         console.print(f"[red]wiki path not found:[/red] {wiki_root}")
         raise typer.Exit(code=2)

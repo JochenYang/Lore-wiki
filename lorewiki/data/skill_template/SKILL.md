@@ -594,6 +594,12 @@ English title and put the original-language text in `--body`.
   paragraphs the user just told you. Drop a directory + `lorewiki index`
   for bulk. **Never** wrap `add` in a 50-iteration loop when a
   short script + one index call would be cleaner.
+- **Topic routing** (`--topic` / `-T`): **always** pass `--topic` when
+  adding a note that belongs to a specific project's topic. Project-specific
+  notes go to their dedicated topic (e.g. `--topic warm-kitchen-time`);
+  cross-project patterns go to `--topic shared`. Without `--topic` the note
+  lands in the active topic, which may not be the right one. The MCP `add`
+  tool accepts a `topic` parameter with the same semantics.
 
 ## Common Pitfalls
 
@@ -618,7 +624,7 @@ lorewiki status   --path "<WIKI>"
 lorewiki search   "<QUERY>" --path "<WIKI>" --mode {mix|bm25|hierarchy} --top-k N   # default: JSON
 lorewiki show     "<DOC_PATH>" --path "<WIKI>" [--raw]                              # default: cleaned body
 lorewiki tree     "[<PREFIX>]" --path "<WIKI>" [--depth N]                         # hierarchy view
-lorewiki add      --title "<T>" [--module <M>] [--body <B> | --file <F> | stdin]   # one-off write + reindex
+lorewiki add      --title "<T>" --topic <topic> [--module <M>] [--body <B> | --file <F> | stdin]   # one-off write + reindex
 lorewiki ask      "<QUERY>" --path "<WIKI>" --top-k N --raw                         # JSON (default: Markdown)
 lorewiki topic    {list|use|create|show|...}                                        # vault management
 lorewiki config   {list|get|set} ... --path "<WIKI>"
@@ -634,7 +640,7 @@ lorewiki clean    --path "<WIKI>" [--dry-run] [--no-backup]                     
 | "what's in the wiki / what modules exist"               | `lorewiki tree`                                               |
 | "does the wiki explain how X is implemented?"             | `lorewiki ask "how is X implemented?" --raw`                  |
 | "what modules does the wiki have?"                      | `lorewiki tree --depth 2`                                     |
-| "remember this / save this / take a note about X" (topic named)  | `lorewiki topic use <name> && lorewiki add --title "X" --body "..."` |
+| "remember this / save this / take a note about X" (topic named)  | `lorewiki add --title "X" --topic <name> --body "..."` |
 | "remember this / save this to my wiki" (no topic)               | Follow the **Topic Selection Tree** (see "ask, don't surprise")     |
 | "save this URL / doc to my wiki"                                 | Fetch content (webfetch / Read tool) → `lorewiki add --title X --body "<fetched>"` |
 | "store these N pages / scrape this site"                | Drop the dir under the topic, then `lorewiki index`           |
