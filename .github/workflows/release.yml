@@ -1,10 +1,8 @@
 name: Create GitHub Release
 
-# Trigger on tag pushes that DON'T start with v (e.g. "release-0.7.4").
-# Version tags (v*) are handled by publish.yml which builds + uploads to PyPI.
-# This workflow is for documentation-only / non-publishing releases
-# (e.g. sync commits, CHANGELOG bumps, README refreshes) that still
-# deserve a GitHub Release entry for visibility.
+# Trigger on any v* or release-* tag. Version tags (v*) also trigger
+# publish.yml (PyPI upload); both workflows run independently on the
+# same tag push. release-* is a legacy pattern for non-PyPI releases.
 #
 # Release notes are generated from ``git log`` between the previous
 # release tag and the current one. Commits are grouped by their
@@ -14,6 +12,7 @@ name: Create GitHub Release
 on:
   push:
     tags:
+      - "v*"
       - "release-*"
 
 permissions:
