@@ -1,4 +1,4 @@
-﻿<p align="center">
+<p align="center">
   <img src="../assets/logo.png" alt="LoreWiki" width="320" />
 </p>
 
@@ -150,17 +150,26 @@ lorewiki show   index.md --path ./my-wiki   # 打印一个文档正文（已清�
 
 ## 主题（Topics）— 你的第二大脑
 
-上面的 per-wiki 模式适合单项目场景。**共享大脑**用法是 **topics**——在
-`~/lorewiki/topics/` 下建多个隔离 vault，从任何项目都能查：
+上面的 per-wiki 模式适合独立 wiki 文件夹。**共享大脑**用法是 **topics**——在
+`~/lorewiki/topics/` 下建多个隔离 vault；代码项目可以绑定自己的默认主题，同时
+agent 仍然可以显式查询 shared / 通用主题：
 
 ```bash
-lorewiki topic create react                              # 空 vault
-lorewiki topic create react --source ~/notes/react       # 复制模式（默认）
-lorewiki topic create react --source ~/notes/react --link  # 符号链接模式
-lorewiki topic use react                                 # 激活
-lorewiki index                                           # 索引当前主题
-lorewiki search "useState closure"                       # 查当前主题
-lorewiki ask "props drilling 对比"                       # LLM 从当前主题回答
+lorewiki topic create lorewiki                            # 空项目 vault
+lorewiki topic create shared                              # 跨项目通用 vault
+lorewiki topic create react --source ~/notes/react        # 复制模式（默认）
+lorewiki topic create react --source ~/notes/react --link # 符号链接模式
+
+# 在当前代码项目绑定默认主题：
+lorewiki config set default_topic lorewiki
+
+# 在已绑定项目内，默认查询项目主题：
+lorewiki index
+lorewiki search "config resolution"
+lorewiki ask "topic resolution 是怎么工作的？"
+
+# 需要通用知识时显式查询 shared：
+lorewiki --topic shared search "python packaging pitfalls"
 ```
 
 生成的目录结构：
@@ -168,19 +177,20 @@ lorewiki ask "props drilling 对比"                       # LLM 从当前主题
 ```
 ~/lorewiki/                          # 中央根
 ├── config.toml                      # 全局：LLM key、retrieval mode
-├── current                          # 文本文件：当前激活的主题名
+├── current                          # 文本文件：手动 fallback 主题名
 └── topics/
-    └── react/                       # 一个主题 = 一个 vault
+    └── lorewiki/                    # 一个主题 = 一个 vault
         ├── .lorewiki/index.db       # 隐藏的 lorewiki 元数据
         ├── api/auth.md
         └── architecture.md
 ```
 
-**主题解析优先级**（后者覆盖前者）：`--topic` flag →
-`LOREWIKI_TOPIC` env → `~/lorewiki/current` 文件 → `--path`（老 per-wiki
-模式）→ cwd 下 `.lorewiki/config.toml`（老 per-project 模式）。
+**主题解析优先级**：`--topic` flag → `LOREWIKI_TOPIC` env → 当前目录或父级
+`.lorewiki/config.toml` 里的 `default_topic` → `~/lorewiki/current` 文件 →
+`--path` / `wiki_path` 老 per-wiki 模式。
 
-老的 per-project 模式 **永久保留**——无需迁移。主题是便利，不是替代。
+老的 per-project / per-wiki 模式 **永久保留**——无需迁移。topics + 项目
+`default_topic` 是面向 LLM 辅助开发的推荐工作流。
 
 vault 根目录就是普通 Markdown + 隐藏 `.lorewiki/`，所以 **Obsidian / Logseq
 / VS Code 都能直接打开**，不需要装 lorewiki。这种跨工具友好正是「第二大脑」

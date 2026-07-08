@@ -1,8 +1,25 @@
-﻿# Changelog
+# Changelog
 
 All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
+
+## [1.1.0] — 2026-07-08
+
+### Added
+- Project-level `default_topic` binding. `lorewiki search` / `ask` now
+  discover `<cwd-or-ancestor>/.lorewiki/config.toml` and use its
+  `default_topic` before falling back to `~/.lorewiki/current`, so LLM
+  agents query the knowledge base that matches the current code project.
+- Agent-facing docs now show the simple project-bound workflow plus
+  explicit shared-topic lookup (`lorewiki --topic shared search ...`).
+
+### Fixed
+- `lorewiki add --topic <name>` now reindexes the same topic it writes to,
+  instead of writing to the requested topic but rebuilding the active one.
+- Vector-index insertion failures no longer abort the lexical BM25 /
+  hierarchy index; vector retrieval degrades while normal search remains
+  usable.
 
 ## [1.0.0] — 2026-07-04
 

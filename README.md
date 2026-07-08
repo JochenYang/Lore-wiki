@@ -1,4 +1,4 @@
-﻿<p align="center">
+<p align="center">
   <img src="https://raw.githubusercontent.com/JochenYang/Lore-wiki/main/assets/logo.png" alt="LoreWiki" width="320" />
 </p>
 
@@ -163,29 +163,41 @@ lorewiki tree   --path ./my-wiki      # Rich-Tree view of the hierarchy
 lorewiki show   index.md --path ./my-wiki   # print a doc body (cleaned)
 ```
 
-**Config resolution** (later wins):
+**Config resolution** combines global settings, project bindings, and explicit
+overrides. For topic selection, LoreWiki now uses this priority:
 
-1. `<wiki>/.lorewiki/config.toml` — per-wiki defaults
-2. `~/.lorewiki/config.toml` — user-wide overrides
-3. `LOREWIKI_*` env vars — shell-level overrides
+1. `--topic <name>` — explicit one-shot topic.
+2. `LOREWIKI_TOPIC` — environment override.
+3. `<cwd-or-ancestor>/.lorewiki/config.toml` with `default_topic = "name"`.
+4. `~/.lorewiki/current` — fallback set by `lorewiki topic use <name>`.
+5. Legacy `--path <WIKI_ROOT>` / `wiki_path` mode for standalone wiki folders.
 
-Edit any of these with `lorewiki config list / get / set` (TOML-aware,
-no hand-editing required).
+Edit config with `lorewiki config list / get / set` (TOML-aware, no
+hand-editing required).
 
 ## Topics — your second brain
 
-The per-wiki mode above is fine for a single project. The
+The per-wiki mode above is fine for standalone folders. The
 **shared-brain** workflow is **topics** — isolated vaults under
-`~/lorewiki/topics/`, queryable from any project:
+`~/lorewiki/topics/`. A code project can bind to one topic while agents
+can still query shared/common topics explicitly:
 
 ```bash
-lorewiki topic create react                              # empty vault
-lorewiki topic create react --source ~/notes/react       # copy mode (default)
-lorewiki topic create react --source ~/notes/react --link  # symlink mode
-lorewiki topic use react                                 # activate
-lorewiki index                                           # index the active topic
-lorewiki search "useState closure"                       # query the active topic
-lorewiki ask "props drilling 对比"                       # LLM answer from active topic
+lorewiki topic create lorewiki                            # empty project vault
+lorewiki topic create shared                              # common cross-project vault
+lorewiki topic create react --source ~/notes/react        # copy mode (default)
+lorewiki topic create react --source ~/notes/react --link # symlink mode
+
+# Bind the current code project to its default topic:
+lorewiki config set default_topic lorewiki
+
+# Inside the bound project, these use the project topic automatically:
+lorewiki index
+lorewiki search "config resolution"
+lorewiki ask "how does topic resolution work?"
+
+# Query common knowledge explicitly when needed:
+lorewiki --topic shared search "python packaging pitfalls"
 ```
 
 Layout produced:
@@ -193,20 +205,17 @@ Layout produced:
 ```
 ~/lorewiki/                          # central root
 ├── config.toml                      # global: LLM key, retrieval mode
-├── current                          # text: name of active topic
+├── current                          # text: manual fallback topic
 └── topics/
-    └── react/                       # one topic = one vault
+    └── lorewiki/                    # one topic = one vault
         ├── .lorewiki/index.db       # hidden lorewiki metadata
         ├── api/auth.md
         └── architecture.md
 ```
 
-**Topic resolution priority** (later wins): `--topic` flag →
-`LOREWIKI_TOPIC` env → `~/lorewiki/current` file → `--path` (legacy
-per-wiki mode) → cwd `.lorewiki/config.toml` (legacy per-project mode).
-
-The legacy per-project mode is **permanently supported** — no
-migration required. Topics are a convenience, not a replacement.
+The legacy per-project / per-wiki mode is **permanently supported** — no
+migration required. Topics and project `default_topic` are the recommended
+workflow for LLM-assisted development.
 
 The vault root is plain Markdown with a hidden `.lorewiki/`
 directory, so **Obsidian / Logseq / VS Code can open it directly**

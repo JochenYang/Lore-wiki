@@ -12,6 +12,18 @@ from lorewiki.config import (
     load_config,
     save_config,
 )
+from lorewiki.topic import TopicManager
+
+
+def _patch_lorewiki_home(monkeypatch: pytest.MonkeyPatch, fake_home: Path) -> None:
+    monkeypatch.setattr("lorewiki.config.USER_CONFIG_DIR", fake_home)
+    monkeypatch.setattr("lorewiki.config.USER_CONFIG_PATH", fake_home / "config.toml")
+    monkeypatch.setattr("lorewiki.topic.USER_CONFIG_DIR", fake_home)
+    monkeypatch.setattr("lorewiki.topic.USER_TOPICS_ROOT", fake_home / "topics")
+    monkeypatch.setattr("lorewiki.topic.CURRENT_FILE", fake_home / "current")
+    monkeypatch.setattr("lorewiki.utils.topic_shared.USER_CONFIG_DIR", fake_home)
+    monkeypatch.setattr("lorewiki.utils.topic_shared.USER_TOPICS_ROOT", fake_home / "topics")
+    monkeypatch.setattr("lorewiki.utils.topic_shared.CURRENT_FILE", fake_home / "current")
 
 
 def test_defaults_resolve_paths(tmp_path: Path) -> None:
@@ -112,3 +124,99 @@ def test_stale_project_wiki_path_is_ignored(tmp_path: Path) -> None:
     assert stale_path not in cfg.wiki_path.parents, (
         f"cfg.wiki_path={cfg.wiki_path} unexpectedly descends from stale_path={stale_path}"
     )
+
+
+def test_project_default_topic_beats_current_topic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    _patch_lorewiki_home(monkeypatch, fake_home)
+    mgr = TopicManager()
+    project_info = mgr.create("project-topic")
+    mgr.create("current-topic")
+    mgr.use("current-topic")
+
+    project = tmp_path / "project"
+    (project / ".lorewiki").mkdir(parents=True)
+    (project / ".lorewiki" / "config.toml").write_text(
+        'default_topic = "project-topic"\n', encoding="utf-8"
+    )
+
+    cfg = load_config(project_dir=project)
+
+    assert cfg.topic == "project-topic"
+    assert cfg.default_topic == "project-topic"
+    assert cfg.wiki_path == project_info.wiki_path
+    assert cfg.db_path == project_info.db_path
+
+
+def test_explicit_topic_beats_project_default_topic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    _patch_lorewiki_home(monkeypatch, fake_home)
+    mgr = TopicManager()
+    mgr.create("project-topic")
+    explicit_info = mgr.create("explicit-topic")
+
+    project = tmp_path / "project"
+    (project / ".lorewiki").mkdir(parents=True)
+    (project / ".lorewiki" / "config.toml").write_text(
+        'default_topic = "project-topic"\n', encoding="utf-8"
+    )
+
+    cfg = load_config(project_dir=project, overrides={"topic": "explicit-topic"})
+
+    assert cfg.topic == "explicit-topic"
+    assert cfg.default_topic == "project-topic"
+    assert cfg.wiki_path == explicit_info.wiki_path
+    assert cfg.db_path == explicit_info.db_path
+
+
+def test_discovers_project_default_topic_from_ancestor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    _patch_lorewiki_home(monkeypatch, fake_home)
+    info = TopicManager().create("project-topic")
+
+    project = tmp_path / "project"
+    child = project / "src" / "pkg"
+    child.mkdir(parents=True)
+    (project / ".lorewiki").mkdir()
+    (project / ".lorewiki" / "config.toml").write_text(
+        'default_topic = "project-topic"\n', encoding="utf-8"
+    )
+    monkeypatch.chdir(child)
+
+    cfg = load_config()
+
+    assert cfg.topic == "project-topic"
+    assert cfg.wiki_path == info.wiki_path
+    assert cfg.db_path == info.db_path
+
+
+def test_explicit_wiki_path_keeps_legacy_per_wiki_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    _patch_lorewiki_home(monkeypatch, fake_home)
+    TopicManager().create("project-topic")
+
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    project = tmp_path / "project"
+    (project / ".lorewiki").mkdir(parents=True)
+    (project / ".lorewiki" / "config.toml").write_text(
+        'default_topic = "project-topic"\n', encoding="utf-8"
+    )
+
+    cfg = load_config(project_dir=project, overrides={"wiki_path": str(wiki)})
+
+    assert cfg.topic is None
+    assert cfg.wiki_path == wiki.resolve()
+    assert cfg.db_path == wiki.resolve() / ".lorewiki" / "index.db"

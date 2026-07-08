@@ -466,12 +466,18 @@ def _populate_vector_index(conn, stats: IndexerStats) -> None:
         log.warning("fastembed encoding failed: {} (vector mode will fall back to mix)", exc)
         return
     # ``model.embed`` is a generator yielding one ndarray per input.
-    # Pair each embedding with its rowid and bulk-insert.
+    # Pair each embedding with its rowid and bulk-insert. sqlite-vec expects
+    # the vector value in a driver-supported representation; if the installed
+    # sqlite-vec / fastembed combination rejects it, keep lexical retrieval intact.
     rows_to_insert = list(zip(rowids, (e.tolist() for e in embeddings), strict=True))
-    conn.executemany(
-        "INSERT INTO doc_vec (rowid, embedding) VALUES (?, ?)",
-        rows_to_insert,
-    )
+    try:
+        conn.executemany(
+            "INSERT INTO doc_vec (rowid, embedding) VALUES (?, ?)",
+            rows_to_insert,
+        )
+    except Exception as exc:
+        log.warning("sqlite-vec insert failed: {} (vector mode will fall back to mix)", exc)
+        return
     log.info("vector index populated with {} embeddings", len(rows_to_insert))
 
 

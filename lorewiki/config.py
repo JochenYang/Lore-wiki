@@ -16,15 +16,17 @@ default; unknown keys raise a clear error instead of being silently dropped.
 
 Topic resolution (which topic's config to load) follows this priority:
 
-1. ``topic`` field on the config (set via ``--topic`` flag, ``LOREWIKI_TOPIC``
-   env var, or explicit ``overrides``).
-2. ``~/lorewiki/current`` text file (the user's last-used topic).
-3. ``None`` — falls back to the legacy per-wiki / per-project mode where
+1. Explicit ``topic`` (set via ``--topic`` flag, ``LOREWIKI_TOPIC`` env var,
+   or explicit ``overrides``).
+2. Project-level ``default_topic`` in ``<cwd-or-ancestor>/.lorewiki/config.toml``.
+3. ``~/lorewiki/current`` text file (the user's last-used topic).
+4. ``None`` — falls back to the legacy per-wiki / per-project mode where
    ``wiki_path`` and ``db_path`` are project-local.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any, Literal
@@ -86,6 +88,7 @@ class LoreWikiConfig(BaseSettings):
     wiki_path: Path = Field(default_factory=lambda: Path("./wiki"))
     db_path: Path | None = None
     topic: str | None = None
+    default_topic: str | None = None
     retrieval_mode: Literal["mix", "bm25", "hierarchy", "vector"] = "mix"
     mix_weights: MixWeights = Field(default_factory=MixWeights)
     rrf_k: int = 60
@@ -140,58 +143,26 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return out
 
 
-def load_config(
-    *,
-    project_dir: Path | None = None,
-    overrides: dict[str, Any] | None = None,
-) -> LoreWikiConfig:
-    """Load config from disk + env + overrides (later wins).
+def discover_project_config_dir(start: Path | None = None) -> Path | None:
+    """Return the nearest ancestor containing ``.lorewiki/config.toml``."""
+    current = (start or Path.cwd()).expanduser().resolve()
+    if current.is_file():
+        current = current.parent
+    for candidate in (current, *current.parents):
+        if (candidate / PROJECT_CONFIG_REL).is_file():
+            return candidate
+    return None
 
-    Layered merge order:
-        global (~/.lorewiki/config.toml)
-        → topic (~/.lorewiki/topics/<active>/config.toml, only if active topic)
-        → project (<project_dir>/.lorewiki/config.toml)
-        → overrides
-    """
-    user_cfg = _load_toml(USER_CONFIG_PATH)
 
-    # Resolve the active topic. The CLI normally injects the
-    # ``topic`` key into ``overrides``; here we also honour the
-    # ``~/lorewiki/current`` file so env-less calls (e.g. the
-    # REST API) still see the right topic.
-    from lorewiki.topic import USER_TOPICS_ROOT  # noqa: PLC0415
-    effective_topic: str | None = None
-    if overrides and "topic" in overrides and overrides["topic"]:
-        effective_topic = overrides["topic"]
-    if not effective_topic:
-        from lorewiki.utils.topic_shared import read_current_topic  # noqa: PLC0415
-        effective_topic = read_current_topic()
+def _env_topic() -> str | None:
+    raw = os.environ.get("LOREWIKI_TOPIC")
+    if raw is None:
+        return None
+    return raw.strip() or None
 
-    topic_cfg: dict[str, Any] = {}
-    explicit_project_dir = project_dir is not None
-    if effective_topic:
-        topic_path = USER_TOPICS_ROOT / effective_topic / "config.toml"
-        topic_cfg = _load_toml(topic_path)
-        # When a topic is active AND no explicit project_dir was passed,
-        # treat the topic root itself as the project_dir — the per-topic
-        # config.toml (if any) is the project's source of truth and we
-        # should NOT also consult the cwd's .lorewiki/config.toml, which
-        # belongs to the legacy per-wiki mode and would otherwise shadow
-        # the topic. Tests that pass an explicit project_dir (e.g. the
-        # config suite's tmp_path fixtures) keep their expected behaviour.
-        if not (overrides and overrides.get("wiki_path")) and not explicit_project_dir:
-            project_dir = USER_TOPICS_ROOT / effective_topic
 
-    project_dir = (project_dir or Path.cwd()).resolve()
-    project_cfg = _load_toml(project_dir / PROJECT_CONFIG_REL)
-
-    # Defensive: a project-level `wiki_path` that points to a non-existent
-    # directory would silently shadow the topic-derived path and surface
-    # as a confusing "no index found at <stale path>" error at search time.
-    # Detect that case, log a clear warning, and drop the stale value so
-    # the rest of the resolution chain (topic root / user config) wins.
-    # This protects users from earlier `lorewiki init --path <tmp>` tests
-    # or moved/deleted wiki directories.
+def _sanitize_project_cfg(project_cfg: dict[str, Any], project_dir: Path) -> dict[str, Any]:
+    """Drop stale project-only path overrides that would shadow topics."""
     if project_cfg and "wiki_path" in project_cfg:
         stale_wiki_path = Path(str(project_cfg["wiki_path"])).expanduser()
         if not stale_wiki_path.exists():
@@ -201,26 +172,59 @@ def load_config(
                 stale_wiki_path,
                 project_dir / PROJECT_CONFIG_REL,
             )
-            project_cfg = {k: v for k, v in project_cfg.items() if k != "wiki_path"}
+            return {k: v for k, v in project_cfg.items() if k != "wiki_path"}
+    return project_cfg
 
-    # When the active topic wins (no explicit --path, no explicit
-    # project_dir), pin the topic root as wiki_path. Without this,
-    # an empty merged dict falls through to LoreWikiConfig's default
-    # of ``~/wiki`` — i.e. the legacy per-wiki directory — even
-    # though the user clearly asked for the topic mode.
-    if (
-        effective_topic
-        and not (overrides and overrides.get("wiki_path"))
-        and not explicit_project_dir
-    ):
-        merged_wiki_path = str(USER_TOPICS_ROOT / effective_topic)
-    else:
-        merged_wiki_path = None
+
+def load_config(
+    *,
+    project_dir: Path | None = None,
+    overrides: dict[str, Any] | None = None,
+) -> LoreWikiConfig:
+    """Load config from disk + env + overrides (later wins).
+
+    Topic selection priority:
+        explicit overrides / LOREWIKI_TOPIC
+        → project ``default_topic``
+        → ``~/.lorewiki/current``
+        → legacy per-wiki mode.
+    """
+    user_cfg = _load_toml(USER_CONFIG_PATH)
+    explicit_project_dir = project_dir is not None
+    explicit_wiki_path = bool(overrides and overrides.get("wiki_path"))
+
+    discovered_project_dir = None if explicit_project_dir else discover_project_config_dir()
+    project_dir = (project_dir or discovered_project_dir or Path.cwd()).resolve()
+    project_cfg = _sanitize_project_cfg(_load_toml(project_dir / PROJECT_CONFIG_REL), project_dir)
+
+    from lorewiki.topic import USER_TOPICS_ROOT  # noqa: PLC0415
+
+    explicit_topic = None
+    if not explicit_wiki_path:
+        if overrides and overrides.get("topic"):
+            explicit_topic = str(overrides["topic"]).strip() or None
+        if not explicit_topic:
+            explicit_topic = _env_topic()
+
+    project_topic = None if explicit_wiki_path else project_cfg.get("default_topic")
+    if project_topic:
+        project_topic = str(project_topic).strip() or None
+
+    effective_topic = explicit_topic or project_topic
+    if not effective_topic and not explicit_wiki_path:
+        from lorewiki.utils.topic_shared import read_current_topic  # noqa: PLC0415
+        effective_topic = read_current_topic()
+
+    topic_cfg: dict[str, Any] = {}
+    if effective_topic:
+        topic_cfg = _load_toml(USER_TOPICS_ROOT / effective_topic / "config.toml")
 
     merged = _deep_merge(user_cfg, topic_cfg)
     merged = _deep_merge(merged, project_cfg)
-    if merged_wiki_path is not None and "wiki_path" not in merged:
-        merged["wiki_path"] = merged_wiki_path
+    if effective_topic:
+        merged["topic"] = effective_topic
+    if effective_topic and not explicit_wiki_path:
+        merged["wiki_path"] = str(USER_TOPICS_ROOT / effective_topic)
     if overrides:
         merged = _deep_merge(merged, overrides)
     try:
@@ -279,6 +283,7 @@ __all__ = [
     "VectorConfig",
     "_deep_merge",
     "default_config_toml",
+    "discover_project_config_dir",
     "load_config",
     "save_config",
 ]

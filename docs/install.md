@@ -1,4 +1,4 @@
-﻿# Installing, upgrading, and uninstalling LoreWiki
+# Installing, upgrading, and uninstalling LoreWiki
 
 > LoreWiki is a Python tool and lives on **PyPI** as the canonical
 > (and only) distribution channel.
@@ -174,9 +174,8 @@ tar czf lorewiki-backup-$(date +%Y%m%d).tar.gz ~/.lorewiki
 End users **do not** need this section. If you maintain lorewiki and
 want to push a new release:
 
-1. **Bump the version** in all three places (they must match):
+1. **Bump the version** in both package metadata files (they must match), and add a changelog entry:
    - `pyproject.toml` → `version = "X.Y.Z"`
-   - `package.json` → `"version": "X.Y.Z"`
    - `lorewiki/__init__.py` → `__version__ = "X.Y.Z"`
    - `CHANGELOG.md` → add a top-level `## [X.Y.Z] — YYYY-MM-DD` entry
 2. **Verify locally**:

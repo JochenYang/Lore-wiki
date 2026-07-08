@@ -22,8 +22,21 @@ import pytest
 from typer.testing import CliRunner
 
 from lorewiki.cli.apps import app
+from lorewiki.topic import TopicManager
 
 runner = CliRunner()
+
+
+def _patch_lorewiki_home(monkeypatch: pytest.MonkeyPatch, fake_home: Path) -> None:
+    monkeypatch.setattr("lorewiki.config.USER_CONFIG_DIR", fake_home)
+    monkeypatch.setattr("lorewiki.config.USER_CONFIG_PATH", fake_home / "config.toml")
+    monkeypatch.setattr("lorewiki.topic.USER_CONFIG_DIR", fake_home)
+    monkeypatch.setattr("lorewiki.topic.USER_TOPICS_ROOT", fake_home / "topics")
+    monkeypatch.setattr("lorewiki.topic.CURRENT_FILE", fake_home / "current")
+    monkeypatch.setattr("lorewiki.utils.topic_shared.USER_CONFIG_DIR", fake_home)
+    monkeypatch.setattr("lorewiki.utils.topic_shared.USER_TOPICS_ROOT", fake_home / "topics")
+    monkeypatch.setattr("lorewiki.utils.topic_shared.CURRENT_FILE", fake_home / "current")
+
 
 
 @pytest.fixture()
@@ -381,3 +394,49 @@ def test_cli_add_infers_title_from_first_h1(fresh_wiki: Path) -> None:
         or 'title: "Inferred Title"' in text
         or "title: 'Inferred Title'" in text
     )
+
+
+def test_cli_add_with_topic_reindexes_selected_topic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    _patch_lorewiki_home(monkeypatch, fake_home)
+    mgr = TopicManager()
+    mgr.create("active-topic")
+    target_info = mgr.create("target-topic")
+    mgr.use("active-topic")
+
+    result = runner.invoke(
+        app,
+        [
+            "add",
+            "--title",
+            "Target Topic Note",
+            "--body",
+            "Only the target topic should index this unique phrase.",
+            "--topic",
+            "target-topic",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (target_info.wiki_path / "root" / "target-topic-note.md").exists()
+
+    try:
+        search_result = runner.invoke(
+            app,
+            [
+                "--topic",
+                "target-topic",
+                "search",
+                "unique phrase",
+                "--top-k",
+                "3",
+            ],
+        )
+        assert search_result.exit_code == 0, search_result.output
+        payload = json.loads(search_result.stdout)
+        assert any("target-topic-note" in h["doc_path"] for h in payload)
+    finally:
+        monkeypatch.delenv("LOREWIKI_TOPIC", raising=False)

@@ -52,6 +52,14 @@ def slugify(text: str, *, max_len: int = 64) -> str:
     return text[:max_len] or "untitled"
 
 
+def _resolve_target_config(path_arg: str | None, topic_arg: str | None = None):
+    """Return the config for the wiki/topic the add should target."""
+    if topic_arg is not None and topic_arg.strip():
+        # Route to a specific topic vault — ignore the active topic.
+        return load_config(overrides={"topic": topic_arg.strip()})
+    return resolve_config(path_arg)
+
+
 def _resolve_wiki_root(path_arg: str | None, topic_arg: str | None = None) -> Path:
     """Return the absolute path of the wiki root the add should land in.
     
@@ -59,12 +67,7 @@ def _resolve_wiki_root(path_arg: str | None, topic_arg: str | None = None) -> Pa
     regardless of the active topic. This lets LLM agents explicitly choose
     which second-brain vault receives the note.
     """
-    if topic_arg is not None and topic_arg.strip():
-        # Route to a specific topic vault — ignore the active topic.
-        cfg = load_config(overrides={"topic": topic_arg.strip()})
-    else:
-        cfg = resolve_config(path_arg)
-    return cfg.wiki_path.resolve()
+    return _resolve_target_config(path_arg, topic_arg).wiki_path.resolve()
 
 
 def _is_safe_target(wiki_root: Path, target: Path) -> bool:
@@ -281,7 +284,8 @@ def add(
     final_title = title.strip() or _extract_h1(raw_body) or slugify(raw_body[:64])
 
     # ---- 2. resolve paths ---------------------------------------------------
-    wiki_root = _resolve_wiki_root(path, topic_arg=topic)
+    cfg = _resolve_target_config(path, topic_arg=topic)
+    wiki_root = cfg.wiki_path.resolve()
     if not wiki_root.is_dir():
         console.print(f"[red]wiki path not found:[/red] {wiki_root}")
         raise typer.Exit(code=2)
@@ -337,7 +341,6 @@ def add(
 
     # ---- 6. re-index --------------------------------------------------------
     try:
-        cfg = resolve_config(path)
         build_index(cfg, rebuild=False)
     except Exception as exc:
         # bug to swallow a successful write. Surface the warning and let the

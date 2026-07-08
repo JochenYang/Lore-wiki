@@ -1,4 +1,4 @@
-﻿---
+---
 name: lorewiki
 description: "Local-first Markdown knowledge base with hybrid retrieval (BM25 + heading-hierarchy + RRF) and optional LLM answer generation. Use when the user wants to look something up in an internal wiki, ask a question grounded in their team docs, browse the hierarchy of stored notes, or persist a learning / decision / postmortem into a queryable store. Triggers on the natural-language intent to recall or save knowledge — the LLM should match by meaning, not by exact keyword. CLI is one shell call per command with JSON output by default for `search` / `show` / `tree`."
 ---
@@ -101,7 +101,7 @@ implementation details.
 The `lorewiki` CLI must be on the user's PATH. Check with:
 
 ```powershell
-lorewiki --version    # expect: LoreWiki 0.7.2 (or newer)
+lorewiki --version    # expect: LoreWiki 1.1.0 (or newer)
 ```
 
 If missing:
@@ -117,51 +117,60 @@ pipx install lorewiki
 The user must also have a wiki directory with at least `<wiki>/.lorewiki/config.toml`.
 Initialise one if absent: `lorewiki init --path <PATH>`.
 
-## Path Handling Convention
+## Topic and Project Binding Convention
 
-Every `lorewiki` invocation takes an optional `--path <WIKI_ROOT>`. The
-agent should pick a wiki using **this exact priority chain**:
+LoreWiki supports two simple ways to choose knowledge:
 
-1. **Explicit value the user typed** in their message — use it verbatim.
-2. **Environment variable** `LOREWIKI_WIKI_PATH` — `$env:LOREWIKI_WIKI_PATH`
-   on Windows, `$LOREWIKI_WIKI_PATH` on macOS/Linux. Power users set this so
-   they never have to specify `--path`.
-3. **`.lorewiki/config.toml` in cwd or any ancestor** of cwd — fastest probe:
-   ```powershell
-   Get-Item .\.lorewiki\config.toml -ErrorAction SilentlyContinue
-   ```
-4. **Bounded filesystem scan** — when none of the above resolved, look in
-   common roots with a **shallow** depth (don't scan the entire D:\ or $HOME):
-   ```powershell
-   Get-ChildItem -Path D:\codes, $env:USERPROFILE\Documents `
-       -Filter ".lorewiki" -Recurse -Directory -Depth 3 `
-       -ErrorAction SilentlyContinue | Select-Object FullName
-   ```
-5. **Multiple candidates** — call `lorewiki status --path <CAND>` on each;
-   pick the one with the highest `Chunks` count (it's the populated wiki).
-   Document the choice once, cache it for the rest of the conversation.
-6. **No candidates at all** — ask the user which wiki to use, or offer
-   `lorewiki init --path <PATH>` to bootstrap a new one.
+- **Project-bound lookup**: a code project can set `default_topic` in
+  `<project>/.lorewiki/config.toml`. `lorewiki search` automatically
+  discovers that config from the current directory or any ancestor, so
+  agents can run it from `src/...` and still hit the right project wiki.
+- **Explicit common lookup**: pass `--topic <name>` for one-off queries,
+  e.g. `lorewiki --topic shared search "retry backoff"`.
 
-**Reproducibility rule**: always pass `--path "<ABS_PATH>"` in the actual
-shell call so the command is portable; never rely on cwd at the call site.
-On Windows use forward slashes in arguments to dodge quoting issues:
-`--path D:/codes/Lorewiki/example_wiki`.
+Recommended project binding from a project root:
+
+```powershell
+lorewiki config set default_topic lorewiki
+```
+
+**Topic resolution priority**:
+
+1. Explicit `--topic <name>` on the command.
+2. `LOREWIKI_TOPIC` environment variable.
+3. `<cwd-or-ancestor>/.lorewiki/config.toml` with `default_topic = "name"`.
+4. `~/.lorewiki/current` file set by `lorewiki topic use <name>`.
+5. Legacy `--path <WIKI_ROOT>` / `wiki_path` mode for standalone wiki folders.
+
+Prefer the default project-bound call when working inside a bound codebase:
+
+```powershell
+lorewiki search "config resolution" --top-k 5
+```
+
+Use explicit topic calls for shared/common knowledge or when the user names
+a topic:
+
+```powershell
+lorewiki --topic shared search "python packaging pitfalls" --top-k 5
+```
+
+Use `--path <WIKI_ROOT>` only for legacy standalone wiki folders, not for
+normal topic-based project work.
 
 ## Topics (second-brain vaults)
 
-By default `lorewiki search` queries whichever topic is active. Topics
-are isolated vaults under `~/lorewiki/topics/<name>/`, shared across
+Topics are isolated vaults under `~/lorewiki/topics/<name>/`, shared across
 every project the user works in. Discovery flow when the user asks
 "look up X in my react notes" or "search the cocos wiki":
 
 1. `lorewiki topic list --raw` — enumerate. The active one is starred
    (`*`); its name is the value of `~/lorewiki/current`.
-2. If no topic is active or the user wants a different one, run
-   `lorewiki topic use <name>` first.
-3. If the user mentions a topic that doesn't exist yet, follow the
+2. If the current project has `default_topic`, use it by default.
+3. If the user wants another topic, pass `--topic <name>` for that call.
+4. If the user mentions a topic that doesn't exist yet, follow the
    **Naming Protocol** below to pick a name and confirm with the user.
-4. The active topic's wiki root doubles as an Obsidian / Logseq
+5. The active topic's wiki root doubles as an Obsidian / Logseq
    vault — the user may prefer to edit Markdown directly and just
    re-run `lorewiki index` (which is incremental).
 
@@ -233,12 +242,12 @@ because they said "wiki" without naming a topic. The cost of asking
 once is one round-trip; the cost of surprising the user is having
 to undo the merger later.
 
-**Path resolution priority** (later wins):
+**Path resolution priority**:
 1. `--topic` flag
 2. `LOREWIKI_TOPIC` env var
-3. `~/lorewiki/current` file (set by `lorewiki topic use`)
-4. `--path` flag (legacy per-wiki mode)
-5. cwd `.lorewiki/config.toml` (legacy per-project mode)
+3. cwd or ancestor `.lorewiki/config.toml` with `default_topic`
+4. `~/lorewiki/current` file (set by `lorewiki topic use`)
+5. `--path` / `wiki_path` legacy per-wiki mode
 
 Topic names: lowercase ASCII, digits, hyphens, 1-64 chars, no
 leading/trailing hyphens. The `lorewiki topic create` command will

@@ -19,7 +19,7 @@ from rich.table import Table
 # import from both ``apps`` and ``helpers`` (which is what causes
 # the "two ways to import the same symbol" confusion).
 from lorewiki.cli.apps import console, log
-from lorewiki.config import LoreWikiConfig, load_config
+from lorewiki.config import LoreWikiConfig, discover_project_config_dir, load_config
 from lorewiki.config import _deep_merge as deep_merge
 
 # ---------------------------------------------------------------------------
@@ -38,9 +38,8 @@ def resolve_config(path_arg: str | None) -> LoreWikiConfig:
 
 def discover_project_dir(cfg: LoreWikiConfig) -> Path:
     """Return the directory that should host ``.lorewiki/config.toml``."""
-    cwd_candidate = Path.cwd() / ".lorewiki" / "config.toml"
-    if cwd_candidate.exists():
-        return Path.cwd()
+    if discovered := discover_project_config_dir():
+        return discovered
     return cfg.wiki_path
 
 
