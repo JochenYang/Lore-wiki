@@ -78,8 +78,13 @@ def install(
       - ``q`` (or empty) to quit without installing
 
     Pass ``--tool`` or ``--all`` to skip the prompt. ``--uninstall``
-    reverses the operation; ``--force`` overwrites an existing
-    install at the target path.
+    reverses the operation. Stale LoreWiki skill copies are upgraded
+    automatically when the wheel template differs; ``--force`` also
+    overwrites non-skill content at the target path.
+
+    Note: ``pip`` / ``uv tool upgrade lorewiki`` does **not** refresh
+    agent skill files by itself — run ``lorewiki install --all`` after
+    upgrading the package.
     """
     tool_ids = (
         [s.strip() for s in tool.split(",") if s.strip()]

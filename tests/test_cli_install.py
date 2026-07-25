@@ -176,8 +176,7 @@ def test_install_writes_skill_to_primary(
 def test_install_refuses_to_overwrite_without_force(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """If a SKILL.md is already at the target, install must skip and
-    surface a friendly hint — not silently clobber the user's edit."""
+    """Non-skill content at the target must not be clobbered without --force."""
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
@@ -195,6 +194,33 @@ def test_install_refuses_to_overwrite_without_force(
     # --force overwrites.
     si.install_skill(opencode, overwrite=True)
     assert "name: lorewiki" in target.read_text(encoding="utf-8")
+
+
+def test_install_auto_upgrades_stale_lorewiki_skill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An older lorewiki SKILL.md (name: lorewiki) upgrades without --force."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+    (tmp_path / ".config" / "opencode").mkdir(parents=True)
+
+    opencode = next(t for t in si.TOOLS if t.id == "opencode")
+    target = opencode.resolve(opencode.primary)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        "---\nname: lorewiki\ndescription: old\n---\n\n# old skill\n",
+        encoding="utf-8",
+    )
+
+    actions = si.install_skill(opencode)
+    assert any("updated" in line for line in actions)
+    body = target.read_text(encoding="utf-8")
+    assert "name: lorewiki" in body
+    assert "old skill" not in body
+    # Second run is a no-op.
+    actions2 = si.install_skill(opencode)
+    assert any("up-to-date" in line for line in actions2)
 
 
 def test_install_creates_aliases_for_cursor_and_gemini(

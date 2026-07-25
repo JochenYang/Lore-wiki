@@ -128,7 +128,7 @@ full multi-chunk content before implementing.
 The `lorewiki` CLI must be on the user's PATH. Check with:
 
 ```powershell
-lorewiki --version    # expect: LoreWiki 1.2.1 (or newer)
+lorewiki --version    # expect: LoreWiki 1.2.2 (or newer)
 ```
 
 If missing:

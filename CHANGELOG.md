@@ -4,6 +4,21 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [1.2.2] — 2026-07-25
+
+### Fixed
+- `lorewiki install` no longer skips existing LoreWiki skills after a
+  package upgrade: stale copies (frontmatter `name: lorewiki`) are
+  auto-updated to the wheel template without `--force`.
+- Non-skill content at the target path is still protected; use `--force`
+  only to overwrite unrelated files.
+
+### Added
+- Skill install catalog entries for `~/.agents` interop and JoyCode
+  (`agents`, `joycode` tool ids).
+- Install help notes that `pip`/`uv tool upgrade` does not refresh agent
+  skill files — run `lorewiki install --all` after upgrading.
+
 ## [1.2.1] — 2026-07-25
 
 ### Fixed

@@ -117,7 +117,7 @@ uv tool install --editable '.[dev]'       # + pytest / ruff / coverage
 ```
 
 Python **3.10+** is required. After install, `lorewiki --version`
-should print a banner ending with the installed version (e.g. `v1.2.1`).
+should print a banner ending with the installed version (e.g. `v1.2.2`).
 
 > **Windows PowerShell + CJK note**: starting with 0.2.0, LoreWiki
 > forces UTF-8 on stdout/stderr unconditionally — CJK characters

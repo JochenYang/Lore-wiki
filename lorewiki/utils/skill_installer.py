@@ -151,6 +151,19 @@ TOOLS: Final[tuple[Tool, ...]] = (
         label="Google Antigravity",
         primary="~/.gemini/antigravity/skills/<name>/SKILL.md",
     ),
+    # Extra interop / third-party agent roots commonly present on
+    # developer machines. Detected only when the tool config root
+    # already exists (same safety rule as the rest of the catalog).
+    Tool(
+        id="agents",
+        label="Agents interop (~/.agents)",
+        primary="~/.agents/skills/<name>/SKILL.md",
+    ),
+    Tool(
+        id="joycode",
+        label="JoyCode",
+        primary="~/.joycode/skills/<name>/SKILL.md",
+    ),
 )
 
 
@@ -259,6 +272,53 @@ def prompt_for_targets(detected: list[Tool], input_fn=input) -> list[Tool] | Non
 # ---------------------------------------------------------------------------
 
 
+def _looks_like_lorewiki_skill(text: str) -> bool:
+    """True if ``text`` is (or was) a LoreWiki skill, not an unrelated file.
+
+    Used to auto-upgrade stale installs after a package bump without
+    clobbering a hand-edited non-skill file at the same path.
+    """
+    head = text.lstrip()[:800]
+    if not head.startswith("---"):
+        return False
+    # Frontmatter name field (YAML) — tolerate spacing variants.
+    return bool(re.search(r"(?m)^name:\s*lorewiki\s*$", head))
+
+
+def _install_one_file(
+    target: Path,
+    skill_text: str,
+    *,
+    overwrite: bool,
+    alias: bool = False,
+) -> str:
+    """Write one skill file; return a single status line for the user log."""
+    tag = " (alias)" if alias else ""
+    if target.exists() and not overwrite:
+        try:
+            existing = target.read_text(encoding="utf-8")
+        except OSError as exc:
+            return f"[skip] {target}{tag} (read failed: {exc})"
+        if existing == skill_text:
+            return f"[skip] {target}{tag} (up-to-date)"
+        if not _looks_like_lorewiki_skill(existing):
+            return (
+                f"[skip] {target}{tag} "
+                f"(exists; pass --force to overwrite non-skill content)"
+            )
+        # Stale lorewiki skill from an older package — upgrade in place.
+        try:
+            target.write_text(skill_text, encoding="utf-8")
+        except OSError as exc:
+            return f"[skip] {target}{tag} (write failed: {exc})"
+        return f"[ok]   updated {target}{tag}"
+    try:
+        target.write_text(skill_text, encoding="utf-8")
+    except OSError as exc:
+        return f"[skip] {target}{tag} (write failed: {exc})"
+    return f"[ok]   wrote {target}{tag}"
+
+
 def install_skill(
     tool: Tool,
     *,
@@ -267,47 +327,29 @@ def install_skill(
 ) -> list[str]:
     """Copy the bundled ``SKILL.md`` to the tool's primary path (and aliases).
 
-    Returns the human-readable action lines (suitable for printing
-    directly to the user). ``overwrite=True`` re-writes an existing
-    target; the default is to refuse and emit a ``[skip]`` line so
-    the caller can surface a friendly hint.
+    Returns human-readable action lines.
 
-    Each target (primary + every alias) is wrapped in its own
-    ``try/except OSError``. Some agent tools (Cursor, Gemini) lock
-    their skills directory with a ``.skill-lock.json`` while the
-    agent is running, which surfaces as ``PermissionError`` on
-    ``write_text``. We don't want one locked path to abort the
-    rest of the install — we surface the failure as a ``[skip]``
-    line and move on.
+    Default policy (no ``--force``):
 
-    The install target is the file ``<root>/<name>/SKILL.md``
-    (not the directory itself). The path templates in :data:`TOOLS`
-    already include the ``/SKILL.md`` suffix. An earlier version
-    of this function wrote to the directory path, which on Windows
-    surfaces as ``PermissionError`` when the dir already exists,
-    and on POSIX silently creates a *file* at the dir path —
-    leaving an orphan single-file ``~/.agents/skills/<name>``
-    (31821 bytes) instead of the expected ``<root>/<name>/SKILL.md``
-    file. The current implementation also cleans up the orphan
-    single-file layout (a file where the dir should be) at the
-    alias path so the new ``mkdir`` doesn't fail.
+    - missing → write
+    - byte-identical to wheel template → skip ``up-to-date``
+    - existing LoreWiki skill (frontmatter ``name: lorewiki``) but
+      different text → **auto-upgrade** (package bumps refresh agents)
+    - other content at the path → skip (protect user edits); ``--force``
+      overwrites
+
+    Each target is wrapped so a locked skills directory cannot abort the
+    rest of the fan-out. Targets are files ``…/SKILL.md``. Legacy
+    single-file alias layouts are cleaned up so ``mkdir`` does not fail.
     """
     if skill_text is None:
         skill_text = _read_skill_template()
     primary = tool.resolve(tool.primary)
     primary.parent.mkdir(parents=True, exist_ok=True)
-    actions: list[str] = []
-    if primary.exists() and not overwrite:
-        actions.append(f"[skip] {primary} (exists; pass --force to overwrite)")
-    else:
-        try:
-            primary.write_text(skill_text, encoding="utf-8")
-        except OSError as exc:
-            actions.append(
-                f"[skip] {primary} (write failed: {exc})"
-            )
-        else:
-            actions.append(f"[ok]   wrote {primary}")
+    actions: list[str] = [
+        _install_one_file(primary, skill_text, overwrite=overwrite, alias=False)
+    ]
+
     for alias_tmpl in tool.aliases:
         alias = tool.resolve(alias_tmpl)
         if alias == primary:
@@ -328,19 +370,9 @@ def install_skill(
                 )
                 continue
         alias.parent.mkdir(parents=True, exist_ok=True)
-        if alias.exists() and not overwrite:
-            actions.append(
-                f"[skip] {alias} (alias; exists; pass --force to overwrite)"
-            )
-        else:
-            try:
-                alias.write_text(skill_text, encoding="utf-8")
-            except OSError as exc:
-                actions.append(
-                    f"[skip] {alias} (alias; write failed: {exc})"
-                )
-            else:
-                actions.append(f"[ok]   wrote {alias} (alias)")
+        actions.append(
+            _install_one_file(alias, skill_text, overwrite=overwrite, alias=True)
+        )
     return actions
 
 
