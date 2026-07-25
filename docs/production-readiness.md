@@ -5,7 +5,7 @@
 >
 > Final verification report covering completeness, correctness, integration,
 > and robustness. Originally generated at the end of the 0.1.0 mission;
-> refreshed for 0.4.1, then updated through **1.2.0**. The REST API was
+> refreshed for 0.4.1, then updated through **1.2.1**. The REST API was
 > removed in 0.2.0; **MCP was later reintroduced** as an optional extra
 > (`pip install 'lorewiki[mcp]'`, `lorewiki mcp serve`). The primary
 > surfaces are the `lorewiki` CLI, the bundled opencode skill
@@ -318,7 +318,7 @@ address hierarchy-only recall (§3.1) and either implement or remove
 
 ---
 
-**Version**: 1.2.0
+**Version**: 1.2.1
 **Date**: 2026-07-25
 **Sign-off**: Surfaces above PASS subject to operator-side live LLM /
 live vector embedding checks and a coverage refresh as documented in §3.

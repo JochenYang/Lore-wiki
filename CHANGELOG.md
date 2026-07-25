@@ -4,6 +4,13 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] — 2026-07-25
+
+### Fixed
+- CI / publish pipeline: ignore ruff preview rule `PLR0917` (too many
+  positional arguments) so Typer CLI entrypoints no longer block PyPI
+  uploads. Same rationale as existing `PLR0913` ignores.
+
 ## [1.2.0] — 2026-07-25
 
 ### Added
