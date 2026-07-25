@@ -135,6 +135,10 @@ async def test_list_tools_have_input_schemas() -> None:
     for tool in tools:
         assert tool.inputSchema["type"] == "object"
         assert "properties" in tool.inputSchema
+        # Dual-layer personal KB: every tool exposes optional ``topic``.
+        assert "topic" in tool.inputSchema["properties"], tool.name
+        topic_desc = tool.inputSchema["properties"]["topic"]["description"].lower()
+        assert "shared" in topic_desc, tool.name
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +349,58 @@ async def test_call_tool_delete_removes_doc(indexed_wiki: Path) -> None:
     assert not any(
         entry["doc_path"].endswith("del.md") for entry in found_payload
     )
+
+
+@pytest.mark.asyncio
+async def test_call_tool_delete_blocks_absolute_path_outside_wiki(
+    indexed_wiki: Path, tmp_path: Path,
+) -> None:
+    """Absolute paths outside the wiki must not be unlinked via MCP delete."""
+    evil = tmp_path / "evil-outside-mcp.md"
+    evil.write_text("do not delete me", encoding="utf-8")
+    try:
+        result = await call_tool(
+            "delete", {"doc_path": str(evil), "force": True},
+        )
+        assert len(result) == 1
+        assert "path-traversal" in result[0].text.lower()
+        assert evil.read_text(encoding="utf-8") == "do not delete me"
+    finally:
+        evil.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_call_tool_update_blocks_absolute_path_outside_wiki(
+    indexed_wiki: Path, tmp_path: Path,
+) -> None:
+    """Absolute paths outside the wiki must not be overwritten via MCP update."""
+    evil = tmp_path / "evil-secret-mcp.md"
+    evil.write_text("secret", encoding="utf-8")
+    try:
+        result = await call_tool(
+            "update",
+            {"doc_path": str(evil), "body": "hacked via mcp"},
+        )
+        assert len(result) == 1
+        assert "path-traversal" in result[0].text.lower()
+        assert evil.read_text(encoding="utf-8") == "secret"
+    finally:
+        evil.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_call_tool_search_unknown_topic_reports_no_index(
+    indexed_wiki: Path,
+) -> None:
+    """Passing topic for a vault that was never indexed surfaces a clear hint."""
+    result = await call_tool(
+        "search",
+        {"query": "anything", "topic": "definitely-missing-topic-xyz"},
+    )
+    assert len(result) == 1
+    text = result[0].text.lower()
+    assert "no index found" in text
+    assert "definitely-missing-topic-xyz" in text or "topic" in text
 
 
 @pytest.mark.asyncio

@@ -324,6 +324,25 @@ def build_index(cfg: LoreWikiConfig, *, rebuild: bool = False) -> IndexerStats:
             stats.files_indexed += 1
             stats.chunks_written += len(new_rows)
 
+        # Purge chunks whose source files no longer exist on disk.
+        # ``rebuild=True`` already wiped ``documents`` above; the
+        # incremental path only walks live files, so without this step
+        # hand-deleted .md files leave ghost rows that ``search`` still
+        # returns. Hierarchy / doc_summaries / edges are rebuilt from
+        # ``parsed_docs`` below and stay consistent once documents is
+        # pruned. FTS external-content triggers fire on DELETE.
+        live_paths = {parsed.path for parsed in parsed_docs}
+        if live_paths:
+            placeholders = ",".join("?" * len(live_paths))
+            conn.execute(
+                f"DELETE FROM documents WHERE doc_path NOT IN ({placeholders})",
+                tuple(live_paths),
+            )
+        else:
+            # Empty vault: drop every remaining chunk so the index mirrors
+            # the on-disk corpus (zero files → zero documents rows).
+            conn.execute("DELETE FROM documents")
+
         # Hierarchy is fully rebuilt each run: cheap, always consistent.
         conn.execute("DELETE FROM hierarchy")
         nodes = _build_hierarchy_nodes(parsed_docs, cleaned_bodies)
@@ -457,6 +476,10 @@ def _populate_vector_index(conn, stats: IndexerStats) -> None:
     # round-trip every existing embedding back through the model.
     conn.execute("DELETE FROM doc_vec")
 
+    # Prefer env override, then a previously-stashed config default on the
+    # connection via meta is unnecessary — callers pass model through
+    # LOREWIKI_VECTOR_MODEL or we use the same default as VectorConfig /
+    # VectorRetriever so index-time and query-time embeddings match.
     model_name = os.environ.get("LOREWIKI_VECTOR_MODEL", "BAAI/bge-small-en-v1.5")
     log.info("encoding {} chunks with {} (first run downloads ~130 MB)", len(bodies), model_name)
     try:

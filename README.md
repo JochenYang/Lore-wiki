@@ -35,9 +35,12 @@ it directly.
 
 | Mode          | Recall@5 | Avg latency |
 |---------------|----------|-------------|
-| BM25          | 80%      | 1.7 ms      |
-| Hierarchy     | 90%      | 0.8 ms      |
-| **Mix (RRF)** | **100%** | 3.0 ms      |
+| BM25          | 80%      | ~1 ms       |
+| Hierarchy     | 40%      | ~0.1 ms     |
+| **Mix (RRF)** | **90%**  | ~1 ms       |
+
+> Numbers re-measured against `example_wiki/` (2026-06-30). Hierarchy-only
+> mode regressed vs early 0.1.x; Mix (default) still meets the ≥ 85 % bar.
 
 ## Features
 
@@ -47,10 +50,11 @@ it directly.
   short CJK queries (e.g. `"幂等"` (idempotent), `"认证"` (auth)).
 - **Optional LLM integration** (Ollama or OpenAI-compatible). Gracefully
   degrades to "return the top-k chunks" when the LLM is offline.
-- **Single-binary CLI + opencode skill**: one command surface, one
-  opencode skill (or any shell-using agent) for AI consumption, and
-  the on-disk vault as the "UI". No server processes, no extra
-  dependencies.
+- **Single-binary CLI + opencode skill + optional MCP**: one command
+  surface, an opencode skill (or any shell-using agent), and an
+  optional MCP server (`pip install 'lorewiki[mcp]'` then
+  `lorewiki mcp serve`) for clients that speak MCP. The on-disk vault
+  remains the "UI".
 - **One `lorewiki add`** to author a note end-to-end (body via
   `--body` / `--file` / stdin) with auto-reindex so the new doc is
   immediately retrievable.
@@ -113,7 +117,7 @@ uv tool install --editable '.[dev]'       # + pytest / ruff / coverage
 ```
 
 Python **3.10+** is required. After install, `lorewiki --version`
-should print a banner ending with `v0.2.x`.
+should print a banner ending with the installed version (e.g. `v1.2.0`).
 
 > **Windows PowerShell + CJK note**: starting with 0.2.0, LoreWiki
 > forces UTF-8 on stdout/stderr unconditionally — CJK characters

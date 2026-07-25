@@ -32,13 +32,51 @@ from lorewiki.cli.add import (
     _strip_surrogates,
     slugify,
 )
-from lorewiki.config import load_config
+from lorewiki.config import LoreWikiConfig, load_config
 from lorewiki.db.connection import open_db
 from lorewiki.indexer import build_index, cleaning
 from lorewiki.indexer.parser import parse_markdown
 from lorewiki.retriever import run_search
 
 server: Server = Server("lorewiki")
+
+# Shared schema fragment: dual-layer personal KB (project topic + ``shared``).
+_TOPIC_PROP: dict[str, Any] = {
+    "type": "string",
+    "description": (
+        "Second-brain topic name. Each topic is an isolated vault under "
+        "~/.lorewiki/topics/<name>/. Use the **project** topic for "
+        "project-only knowledge (e.g. 'lorewiki', 'warm-kitchen-time'); "
+        "use **shared** for cross-project patterns, language tips, and "
+        "reusable lessons. Omit to use the active/default topic "
+        "(project default_topic → ~/.lorewiki/current). "
+        "One call searches/writes exactly one topic — for a full personal "
+        "KB lookup, call search twice (project, then shared) when needed."
+    ),
+}
+
+
+def _mcp_config(topic: str | None = None) -> LoreWikiConfig:
+    """Resolve config for this MCP call; optional topic overrides defaults.
+
+    When ``topic`` is set we pin ``wiki_path`` / ``db_path`` to that vault
+    explicitly. Project ``.lorewiki/config.toml`` often carries a stale
+    ``db_path`` from ``save_config``; without pinning, topic overrides would
+    still search the project index (wrong vault).
+    """
+    if topic is not None and str(topic).strip():
+        name = str(topic).strip()
+        from lorewiki.utils.topic_shared import USER_TOPICS_ROOT  # noqa: PLC0415
+
+        vault = USER_TOPICS_ROOT / name
+        return load_config(
+            overrides={
+                "topic": name,
+                "wiki_path": str(vault),
+                "db_path": str(vault / ".lorewiki" / "index.db"),
+            }
+        )
+    return load_config()
 
 
 @server.list_tools()
@@ -48,11 +86,14 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="search",
             description=(
-                "Search the local knowledge base for relevant documentation. "
+                "Search one topic vault for relevant documentation. "
                 "Returns document summaries (doc_path, title, summary, score). "
-                "Use this when you need to look up API docs, design patterns, "
-                "team decisions, or error solutions. After finding a relevant "
-                "doc, use 'show' to read its full content."
+                "Dual-layer personal KB: (1) omit topic or pass the project "
+                "topic for project-bound docs; (2) pass topic='shared' for "
+                "cross-project knowledge. There is no multi-topic merge — "
+                "if project search is empty or the question is generic "
+                "(retry, packaging, LLM tips), call again with topic='shared'. "
+                "After a hit, use 'show' (same topic) for full content."
             ),
             inputSchema={
                 "type": "object",
@@ -66,6 +107,7 @@ async def list_tools() -> list[Tool]:
                         "description": "Max results to return (default 5).",
                         "default": 5,
                     },
+                    "topic": _TOPIC_PROP,
                 },
                 "required": ["query"],
             },
@@ -73,17 +115,22 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="show",
             description=(
-                "Read a full document from the knowledge base. "
-                "Returns the complete content and related docs (citation links). "
-                "Use after 'search' to read the full content of a relevant doc."
+                "Read a full document from one topic vault (all chunks joined). "
+                "Returns content + related_docs. Pass the same ``topic`` used "
+                "in search (project topic or 'shared'). Paths are relative to "
+                "that topic only — never absolute paths outside the vault."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "doc_path": {
                         "type": "string",
-                        "description": "Relative path of the doc, e.g. 'api/user/auth.md'.",
+                        "description": (
+                            "Relative path inside the topic vault, e.g. "
+                            "'api/user/auth.md'. Must not escape the wiki root."
+                        ),
                     },
+                    "topic": _TOPIC_PROP,
                 },
                 "required": ["doc_path"],
             },
@@ -91,9 +138,9 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="tree",
             description=(
-                "Browse the knowledge base hierarchy. "
-                "Returns a list of all nodes (modules, docs) with their paths and levels. "
-                "Use this to understand what's in the wiki before searching."
+                "Browse the hierarchy of one topic vault (modules + docs). "
+                "Pass topic='shared' or the project topic; omit for default. "
+                "Use before broad questions to see what exists in that vault."
             ),
             inputSchema={
                 "type": "object",
@@ -103,23 +150,19 @@ async def list_tools() -> list[Tool]:
                         "description": "Max depth to return (None = unlimited).",
                         "default": None,
                     },
+                    "topic": _TOPIC_PROP,
                 },
             },
         ),
         Tool(
             name="add",
             description=(
-                "Create a new knowledge note in the wiki. "
-                "Writes a Markdown file with frontmatter (title, module, tags) and "
-                "auto-reindexes so the new doc is immediately retrievable via search(). "
-                "Use this to persist a learning, decision, postmortem, or any "
-                "small chunk of knowledge. The body is required; title and module "
-                "are auto-derived if omitted.\n\n"
-                "IMPORTANT: always pass ``topic`` when the note belongs to a "
-                "specific second-brain topic. For project-specific content use "
-                "the project's topic name (e.g. ``warm-kitchen-time``); for "
-                "cross-project patterns use ``shared``. If omitted, the note "
-                "lands in the active topic, which may not be the right one."
+                "Create a knowledge note in one topic vault and re-index. "
+                "Routing: project-only facts → project topic; reusable "
+                "patterns / language / tooling lessons → topic='shared'. "
+                "Never put secrets or project credentials in shared. "
+                "If the user does not say which vault and both project + "
+                "shared could fit, ask once before writing. Body required."
             ),
             inputSchema={
                 "type": "object",
@@ -147,12 +190,7 @@ async def list_tools() -> list[Tool]:
                         "description": "Overwrite an existing file at the target path.",
                         "default": False,
                     },
-                    "topic": {
-                        "type": "string",
-                        "description": "Topic name to write to. Use the project's topic for "
-                        "project-specific notes (e.g. 'warm-kitchen-time'), or 'shared' "
-                        "for cross-project patterns. If omitted, uses the active topic.",
-                    },
+                    "topic": _TOPIC_PROP,
                 },
                 "required": ["body"],
             },
@@ -160,12 +198,10 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="update",
             description=(
-                "Modify an existing knowledge note in place. "
-                "Pass a doc_path plus any subset of body / title / module / tags. "
-                "Omitted options preserve the existing value, so you can update just "
-                "the body, just the title, or any combination. Auto-reindexes after.\n\n"
-                "IMPORTANT: always pass ``topic`` when the note belongs to a "
-                "specific second-brain topic (same logic as the add tool)."
+                "Modify an existing note in one topic vault. Pass doc_path plus "
+                "any of body / title / module / tags; omitted fields stay. "
+                "Always pass the same ``topic`` the note lives in (project or "
+                "shared). Auto-reindexes after write."
             ),
             inputSchema={
                 "type": "object",
@@ -191,10 +227,7 @@ async def list_tools() -> list[Tool]:
                         "items": {"type": "string"},
                         "description": "New tags list (omit to preserve existing).",
                     },
-                    "topic": {
-                        "type": "string",
-                        "description": "Topic name to write to. Same semantics as the add tool.",
-                    },
+                    "topic": _TOPIC_PROP,
                 },
                 "required": ["doc_path"],
             },
@@ -202,11 +235,10 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="delete",
             description=(
-                "Delete a knowledge note from the wiki. "
-                "Removes the file and purges stale index rows so search() no longer "
-                "returns it. Use this to clean up outdated or wrong docs.\n\n"
-                "IMPORTANT: pass ``topic`` to target a specific second-brain topic "
-                "(same logic as add/update)."
+                "Delete a note from one topic vault and purge index rows. "
+                "Pass topic for the vault that owns the file (project or "
+                "shared). Prefer relative doc_path inside the vault; absolute "
+                "paths outside the wiki root are rejected."
             ),
             inputSchema={
                 "type": "object",
@@ -220,10 +252,7 @@ async def list_tools() -> list[Tool]:
                         "description": "Skip confirmation (always pass true for MCP calls).",
                         "default": True,
                     },
-                    "topic": {
-                        "type": "string",
-                        "description": "Topic name to target. Same semantics as the add tool.",
-                    },
+                    "topic": _TOPIC_PROP,
                 },
                 "required": ["doc_path"],
             },
@@ -239,14 +268,26 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     ``tree``) but returns JSON-serialised payloads wrapped in
     :class:`TextContent` so any MCP client can consume them uniformly.
     """
-    cfg = load_config()
-    if cfg.db_path is None or not cfg.db_path.exists():
-        # No index → surface a actionable hint instead of raising, so the
-        # LLM client can guide the user to run ``lorewiki index`` first.
-        return [TextContent(
-            type="text",
-            text="No index found. Run 'lorewiki index' first to build the knowledge base."
-        )]
+    topic_arg = arguments.get("topic")
+    # Read tools need an index; write tools may create files then reindex.
+    # Resolve topic early so every tool hits the same vault.
+    if name in {"search", "show", "tree"}:
+        cfg = _mcp_config(topic_arg if isinstance(topic_arg, str) else None)
+        if cfg.db_path is None or not cfg.db_path.exists():
+            topic_hint = (
+                f" for topic {topic_arg!r}" if topic_arg else ""
+            )
+            return [TextContent(
+                type="text",
+                text=(
+                    f"No index found{topic_hint}. "
+                    "Run 'lorewiki index' (or 'lorewiki --topic <name> index') "
+                    "first to build the knowledge base."
+                ),
+            )]
+    else:
+        # add / update / delete resolve cfg per-branch (may create files first).
+        cfg = _mcp_config(topic_arg if isinstance(topic_arg, str) else None)
 
     if name == "search":
         query = arguments.get("query", "")
@@ -419,16 +460,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         module = arguments.get("module", "root")
         tags = arguments.get("tags", []) or []
         force = bool(arguments.get("force", False))
-        topic_arg = arguments.get("topic")
-        # If topic is provided, route the write to that topic's vault.
-        if topic_arg:
-            from lorewiki.config import load_config as _mcp_load_config  # noqa: PLC0415
-            _topic_cfg = _mcp_load_config(overrides={"topic": topic_arg})
-            wiki_root = _topic_cfg.wiki_path
-            # Also update cfg so build_index targets the right database.
-            cfg = _topic_cfg
-        else:
-            wiki_root = _resolve_wiki_root(None)
+        # Prefer topic-resolved wiki_path; fall back to CLI-style root.
+        wiki_root = cfg.wiki_path if cfg.wiki_path else _resolve_wiki_root(None)
 
         raw_body = _strip_surrogates(body)
         # Title resolution: explicit > first H1 > slug of first 64 chars.
@@ -504,13 +537,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         from lorewiki.cli.helpers import resolve_doc_target  # noqa: PLC0415
 
         doc_path_arg = arguments.get("doc_path", "")
-        topic_arg = arguments.get("topic")
-        if topic_arg:
-            _topic_cfg = load_config(overrides={"topic": topic_arg})
-            wiki_root = _topic_cfg.wiki_path
-            cfg = _topic_cfg
-        else:
-            wiki_root = _resolve_wiki_root(None)
+        wiki_root = cfg.wiki_path if cfg.wiki_path else _resolve_wiki_root(None)
         if not wiki_root.is_dir():
             return [TextContent(type="text", text=f"wiki path not found: {wiki_root}")]
 
@@ -518,6 +545,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             target_path = resolve_doc_target(doc_path_arg, wiki_root)
         except ValueError as exc:
             return [TextContent(type="text", text=f"path-traversal blocked: {exc}")]
+
+        # Belt-and-braces: same gate as the CLI update/delete path.
+        if not _is_safe_target(wiki_root, target_path):
+            return [TextContent(
+                type="text",
+                text=f"path-traversal blocked: refusing to write outside wiki root: {target_path}",
+            )]
 
         if not target_path.exists():
             return [TextContent(
@@ -594,13 +628,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         # ``force`` defaults to True in the schema — MCP calls are programmatic
         # and shouldn't require a y/N confirmation.
         force = bool(arguments.get("force", True))
-        topic_arg = arguments.get("topic")
-        if topic_arg:
-            _topic_cfg = load_config(overrides={"topic": topic_arg})
-            wiki_root = _topic_cfg.wiki_path
-            cfg = _topic_cfg
-        else:
-            wiki_root = _resolve_wiki_root(None)
+        wiki_root = cfg.wiki_path if cfg.wiki_path else _resolve_wiki_root(None)
         if not wiki_root.is_dir():
             return [TextContent(type="text", text=f"wiki path not found: {wiki_root}")]
 
@@ -608,6 +636,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             target_path = resolve_doc_target(doc_path_arg, wiki_root)
         except ValueError as exc:
             return [TextContent(type="text", text=f"path-traversal blocked: {exc}")]
+
+        # Belt-and-braces: same gate as the CLI update/delete path.
+        if not _is_safe_target(wiki_root, target_path):
+            return [TextContent(
+                type="text",
+                text=f"path-traversal blocked: refusing to delete outside wiki root: {target_path}",
+            )]
 
         if not target_path.exists():
             return [TextContent(type="text", text=f"doc not found: {doc_path_arg}")]

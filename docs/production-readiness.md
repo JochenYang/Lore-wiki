@@ -1,28 +1,26 @@
-﻿# LoreWiki — Production Readiness Report
+# LoreWiki — Production Readiness Report
 
-> **This document reflects the 0.4.x state. For historical context of
-> earlier versions, see CHANGELOG.md.**
+> **This document tracks the 1.1.x surface.** Historical phase notes
+> remain in CHANGELOG.md and `docs/critique/`.
 >
 > Final verification report covering completeness, correctness, integration,
 > and robustness. Originally generated at the end of the 0.1.0 mission;
-> refreshed for 0.4.1. The REST API and MCP server were removed in 0.2.0
-> (commit `d8cd862`, `refactor(core)!: drop REST and MCP, unify retriever
-> entry`); the primary external surface is now the `lorewiki` CLI plus the
-> bundled opencode skill (`skills/lorewiki/SKILL.md`, installable via
-> `lorewiki install`).
+> refreshed for 0.4.1, then updated through **1.2.0**. The REST API was
+> removed in 0.2.0; **MCP was later reintroduced** as an optional extra
+> (`pip install 'lorewiki[mcp]'`, `lorewiki mcp serve`). The primary
+> surfaces are the `lorewiki` CLI, the bundled opencode skill
+> (`skills/lorewiki/SKILL.md` / `lorewiki install`), and optional MCP tools.
 
 ## TL;DR
 
 LoreWiki **is ready for internal / team-shared production use** as a
-**CLI** and as an **opencode skill** consumable by Codex / Aider /
-Claude Code / any shell-using LLM agent. The vault is also a plain
+**CLI**, an **opencode skill**, and an **optional MCP server** consumable
+by Codex / Aider / Claude Code / MCP clients. The vault is also a plain
 folder of `.md` files, so Obsidian / Logseq / VS Code can open it
-directly. The built-in web UI was removed in 0.1.0 and the REST API
-and MCP server were removed in 0.2.0; consumers are expected to drive
-the wiki through `lorewiki <command>` (one shell call per command,
-JSON output by default for `search` / `show` / `tree`) or the
-installed opencode skill. See §3 for the explicit list of verified
-vs. unverified items.
+directly. Consumers drive the wiki through `lorewiki <command>` (JSON
+output by default for `search` / `show` / `tree`), the installed skill,
+or MCP tools (`search` / `show` / `tree` / `add` / `update` / `delete`).
+See §3 for verified vs. unverified items.
 
 ---
 
@@ -195,16 +193,16 @@ vs. unverified items.
    direct edits to `~/.lorewiki/config.toml` mutate the config.
    The Streamlit web UI was removed in 0.1.0 and there is no
    replacement form yet.
-3. **No vector retrieval** — opt-in; `sqlite-vec` +
-   `sentence-transformers` are ready in extras
-   (`pip install lorewiki[vector]`) but `VectorRetriever` is a
-   placeholder that raises loudly. Vector mode in CLI falls back to
-   mix with a notice.
-4. **No real file-watcher loop** — `lorewiki index --watch` is
-   accepted but still runs a one-shot index in 0.4.1; the help text
-   still promises "a real file-watcher loop ships in 0.4.0 (phase 6)"
-   which is now stale (0.4.0 / 0.4.1 shipped without it). The
-   `--watch` flag should either be implemented or re-worded.
+3. **Vector retrieval is opt-in and best-effort** — install
+   `pip install 'lorewiki[vector]'` (sqlite-vec + fastembed,
+   default model `BAAI/bge-small-en-v1.5`). Index-time embedding and
+   query-time KNN share one model name (`LOREWIKI_VECTOR_MODEL` /
+   `vector.embedding_model`). When the extra or `doc_vec` table is
+   missing, `--mode vector` falls back to `mix`. Live embedding quality
+   is not part of the default CI matrix.
+4. **No real file-watcher loop** — `lorewiki index --watch` is still a
+   one-shot index with a warning; treat the flag as experimental /
+   unimplemented until a real watcher lands.
 5. **No streaming `ask`** — `lorewiki ask` returns the full LLM
    answer in one response; there is no SSE / streaming path. (The
    old `/ask` streaming limitation was a REST-API concern; REST was
@@ -225,10 +223,12 @@ vs. unverified items.
     that spawns a subprocess would leak `LOREWIKI_TOPIC` to the
     child. Switch to `ctx.obj["topic"]` and per-subcommand
     `overrides` when needed.
-11. **README recall table is stale** — `README.md` advertises
-    BM25 80 % / Hierarchy 90 % / Mix 100 %, but a 2026-06-30
-    re-measurement gives 80 % / 40 % / 90 %. This doc uses the
-    re-measured numbers; README should be refreshed to match.
+11. ~~**README recall table is stale**~~ — README refreshed to
+    BM25 80 % / Hierarchy 40 % / Mix 90 % (aligned with this report).
+12. **MCP path safety + incremental orphan purge** — fixed in 1.1.x:
+    MCP `update`/`delete` reject paths outside the wiki root;
+    `build_index(rebuild=False)` deletes `documents` rows for files
+    removed on disk. Regression tests cover both.
 
 ---
 
@@ -274,9 +274,8 @@ lorewiki install                # writes the skill into the user's skills root
 # (e.g. ~/.lorewiki/topics/example/api/.../*.md)
 ```
 
-> The `lorewiki rest` and `lorewiki mcp` commands no longer exist;
-> the curl / Claude-Desktop snippets from earlier revisions of this
-> script were removed when `server/` was dropped in 0.2.0.
+> REST remains removed. MCP is available again via
+> `pip install 'lorewiki[mcp]'` and `lorewiki mcp serve` (stdio).
 
 ---
 
@@ -308,19 +307,18 @@ critique.
 
 | Quadrant      | Status |
 | ------------- | ------ |
-| Completeness  | **PASS** — every line in the mission completion criterion has evidence above; REST/MCP items were retired when `server/` was dropped in 0.2.0 |
-| Correctness   | **PASS** — 336 tests pass (measured 2026-06-30); wheel install + fresh-venv smoke verified |
-| Integration   | **PASS** — CLI + opencode skill + Topics all share the same `retriever.search.run_search` + generator core |
-| Robustness    | **PASS with caveats** — graceful degradation everywhere (LLM down, index missing, short queries, unknown modules); hierarchy-only recall regression (40 %) is masked by RRF mix (90 %) but should be fixed before 0.5.0 |
+| Completeness  | **PASS** — CLI + skill + optional MCP + topics; REST remains retired |
+| Correctness   | **PASS** — full pytest suite green on 1.1.x worktree; wheel install path unchanged |
+| Integration   | **PASS** — CLI + opencode skill + MCP tools share `run_search` / `build_index` |
+| Robustness    | **PASS with caveats** — graceful LLM/vector degradation; hierarchy-only recall still 40 %; watch flag still stub |
 
-**Recommendation**: proceed to deploy. Use the "How to verify
-locally" section above as the acceptance script for any reviewer.
-Before 0.5.0, address the hierarchy retriever regression (§3
-limitation 1) and refresh the README recall table (§3 limitation 11).
+**Recommendation**: proceed for internal use. Before the next minor,
+address hierarchy-only recall (§3.1) and either implement or remove
+`--watch`.
 
 ---
 
-**Version**: 0.4.1
-**Date**: 2026-06-30
-**Sign-off**: All four self-audit dimensions PASS (subject to
-operator-side LLM live tests and a coverage refresh as documented in §3).
+**Version**: 1.2.0
+**Date**: 2026-07-25
+**Sign-off**: Surfaces above PASS subject to operator-side live LLM /
+live vector embedding checks and a coverage refresh as documented in §3.

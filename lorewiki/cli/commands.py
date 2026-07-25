@@ -130,9 +130,8 @@ def index(
             "--watch",
             "-w",
             help=(
-                "Watch the wiki path and re-index on file changes. "
-                "Experimental in 0.3.0: for now behaves like a one-shot index. "
-                "A real file-watcher loop ships in 0.4.0 (phase 6)."
+                "EXPERIMENTAL / not implemented: accepted for CLI compatibility "
+                "but still runs a one-shot index only (no file-watcher loop)."
             ),
         ),
     ] = False,
@@ -155,8 +154,8 @@ def index(
 
     if watch:
         log.warning(
-            "--watch is experimental in 0.3.0: running one-shot index. "
-            "Phase 6 (0.4.0) will add a real file-watcher loop."
+            "--watch is not implemented: running one-shot index only "
+            "(no continuous file-watcher loop)."
         )
 
     stats = build_index(cfg, rebuild=rebuild)
@@ -263,18 +262,20 @@ def search(
         ),
     ] = False,
 ) -> None:
-    """Search the wiki and return top-k matching results.
+    """Search one topic vault and return top-k matching results.
 
     By default returns **document summaries** (one per doc, deduplicated),
     so LLM agents can quickly scan which docs are relevant without
     consuming full chunk content. Use ``--full`` to get the traditional
     chunk-level snippets with full text.
 
-    The default output is structured JSON, designed for downstream agents
-    (opencode, claude code, custom scripts). Humans usually want
-    ``lorewiki ask`` instead — it wraps the same retrieval with an LLM
-    synthesis and Markdown rendering. Use ``--human`` here only when you
-    want to eyeball raw retrieval hits in the terminal.
+    Dual-layer personal KB: project ``default_topic`` (or ``--topic``) for
+    project-bound knowledge; ``--topic shared`` for cross-project patterns.
+    There is no multi-topic merge — agents should search project first,
+    then ``shared`` when the question is generic or project hits are empty.
+
+    The default output is structured JSON for agents. Humans usually want
+    ``lorewiki ask``. Use ``--human`` only to eyeball raw hits in the terminal.
     """
     cfg = resolve_config(path)
     db_path = cfg.db_path
@@ -623,20 +624,26 @@ def show(
         console.print("[red]No index found. Run `lorewiki index` first.[/red]")
         raise typer.Exit(code=2)
     with open_db(cfg.db_path, auto_init=False) as conn:
-        row = conn.execute(
-            "SELECT doc_path, title, heading_path, module, content "
-            "FROM documents WHERE doc_path = ? ORDER BY chunk_index LIMIT 1",
+        # Fetch ALL chunks and join them (mirrors MCP ``show``) so long
+        # multi-H2 docs are not truncated to chunk 0 only.
+        rows = conn.execute(
+            "SELECT chunk_index, doc_path, title, heading_path, module, content "
+            "FROM documents WHERE doc_path = ? ORDER BY chunk_index",
             (doc_path,),
-        ).fetchone()
-        if row is None:
+        ).fetchall()
+        if not rows:
             console.print(f"[red]doc not found:[/red] {doc_path}")
             raise typer.Exit(code=3)
-        # Re-read the body from the indexed (cleaned) content so both
-        # default and --raw modes see the same cleaned body. The on-disk
-        # .md may still contain scraper boilerplate / BOM that was
-        # stripped during indexing.
-        body = cleaning.strip_breadcrumb_prefix(row["content"])
-        body = cleaning.strip_translation_footer(body)
+        first = rows[0]
+        joined_parts: list[str] = []
+        for i, row in enumerate(rows):
+            chunk_text = row["content"]
+            if i == 0:
+                chunk_text = cleaning.strip_breadcrumb_prefix(chunk_text)
+            chunk_text = cleaning.strip_translation_footer(chunk_text)
+            if chunk_text.strip():
+                joined_parts.append(chunk_text)
+        body = "\n\n".join(joined_parts)
 
         # Fetch related docs from the edges table (knowledge graph).
         related_docs: list[dict[str, str]] = []
@@ -656,10 +663,11 @@ def show(
         if json_output:
             # Structured JSON for LLM agents: content + related_docs.
             payload = {
-                "doc_path": row["doc_path"],
-                "title": cleaning.clean_title(row["title"]),
-                "module": row["module"],
-                "heading_path": cleaning.clean_heading_path(row["heading_path"]),
+                "doc_path": first["doc_path"],
+                "title": cleaning.clean_title(first["title"]),
+                "module": first["module"],
+                "heading_path": cleaning.clean_heading_path(first["heading_path"]),
+                "chunk_count": len(rows),
                 "content": body.rstrip(),
                 "related_docs": related_docs,
             }
@@ -670,11 +678,12 @@ def show(
         else:
             # Rich-formatted for human eyes.
             console.print(
-                f"# {cleaning.clean_title(row['title'])}\n"
+                f"# {cleaning.clean_title(first['title'])}\n"
                 f"\n"
-                f"[dim]doc:[/dim] {row['doc_path']}\n"
-                f"[dim]module:[/dim] {row['module']}\n"
-                f"[dim]heading:[/dim] {cleaning.clean_heading_path(row['heading_path'])}\n"
+                f"[dim]doc:[/dim] {first['doc_path']}\n"
+                f"[dim]module:[/dim] {first['module']}\n"
+                f"[dim]heading:[/dim] {cleaning.clean_heading_path(first['heading_path'])}\n"
+                f"[dim]chunks:[/dim] {len(rows)}\n"
             )
             if related_docs:
                 related_str = ", ".join(r["doc_path"] for r in related_docs[:5])

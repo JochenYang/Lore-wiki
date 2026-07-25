@@ -166,11 +166,12 @@ def main(
             "--topic",
             "-t",
             help=(
-                "Active knowledge topic NAME for this invocation. Overrides "
-                "the LOREWIKI_TOPIC env var and ~/lorewiki/current. "
-                "Note: this is the OPTION form — to manage topics "
-                "(list / create / use / delete), use the `topic` subcommand. "
-                "Example: --topic react search 'useState closure'."
+                "Topic vault for this invocation (dual-layer personal KB). "
+                "Use the project topic for project-only knowledge, or "
+                "'shared' for cross-project patterns. Overrides LOREWIKI_TOPIC "
+                "and ~/.lorewiki/current. One call = one topic (no multi-topic "
+                "merge). Manage vaults with the `topic` subcommand. "
+                "Example: --topic shared search 'retry backoff'."
             ),
         ),
     ] = None,

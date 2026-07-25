@@ -155,3 +155,68 @@ def test_config_get_unknown_key_returns_error(runner: CliRunner, tmp_path: Path)
     result = runner.invoke(app, ["config", "get", "no_such_key", "--path", str(wiki)])
     assert result.exit_code == 1
     assert "unknown key" in result.output.lower()
+
+
+def test_config_list_redacts_openai_api_key(runner: CliRunner, tmp_path: Path) -> None:
+    """Secret fields must never be printed in cleartext by config list/get."""
+    wiki = tmp_path / "kb"
+    wiki.mkdir()
+    runner.invoke(app, ["init", "--path", str(wiki)])
+    set_res = runner.invoke(
+        app,
+        ["config", "set", "llm.openai_api_key", '"sk-secret-should-not-leak"', "--path", str(wiki)],
+    )
+    assert set_res.exit_code == 0, set_res.output
+
+    list_res = runner.invoke(app, ["config", "list", "--path", str(wiki)])
+    assert list_res.exit_code == 0
+    assert "sk-secret-should-not-leak" not in list_res.output
+    assert "***" in list_res.output
+
+    get_res = runner.invoke(
+        app, ["config", "get", "llm.openai_api_key", "--path", str(wiki)]
+    )
+    assert get_res.exit_code == 0
+    assert get_res.output.strip() == "***"
+    assert "sk-secret" not in get_res.output
+
+
+def test_show_returns_all_chunks_for_multi_section_doc(
+    runner: CliRunner, tmp_path: Path,
+) -> None:
+    """CLI show must join every chunk, not only chunk 0 (MCP parity)."""
+    wiki = tmp_path / "kb"
+    wiki.mkdir()
+    runner.invoke(app, ["init", "--path", str(wiki)])
+    # Two large H2 sections force the chunker past the small-doc fast path.
+    body_parts = [
+        "---",
+        "title: Multi Chunk",
+        "module: patterns",
+        "---",
+        "",
+        "# Multi Chunk",
+        "",
+        "## First Section UniqueAlpha",
+        "",
+        ("paragraph one about UniqueAlpha " * 40).strip(),
+        "",
+        "## Second Section UniqueBeta",
+        "",
+        ("paragraph two about UniqueBeta " * 40).strip(),
+        "",
+    ]
+    doc = wiki / "patterns"
+    doc.mkdir()
+    (doc / "multi-chunk.md").write_text("\n".join(body_parts), encoding="utf-8")
+    idx = runner.invoke(app, ["index", "--path", str(wiki), "--rebuild"])
+    assert idx.exit_code == 0, idx.output
+
+    show_res = runner.invoke(
+        app, ["show", "patterns/multi-chunk.md", "--path", str(wiki), "--json"]
+    )
+    assert show_res.exit_code == 0, show_res.output
+    payload = json.loads(show_res.stdout)
+    assert payload["chunk_count"] >= 1
+    assert "UniqueAlpha" in payload["content"]
+    assert "UniqueBeta" in payload["content"]

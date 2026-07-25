@@ -36,7 +36,7 @@ def config_list(
     table.add_column("Key", style="cyan")
     table.add_column("Value", style="green")
     for key, val in flatten_config(cfg).items():
-        table.add_row(key, format_value(val))
+        table.add_row(key, format_value(val, key=key))
     console.print(table)
 
 
@@ -54,7 +54,7 @@ def config_get(
     if key not in flat:
         console.print(f"[red]unknown key:[/red] {key}")
         raise typer.Exit(code=1)
-    typer.echo(format_value(flat[key]))
+    typer.echo(format_value(flat[key], key=key))
 
 
 @config_app.command("set")

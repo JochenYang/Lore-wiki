@@ -71,7 +71,10 @@ class LLMConfig(BaseModel):
 
 class VectorConfig(BaseModel):
     enabled: bool = False
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # Must match the default used by the indexer and VectorRetriever
+    # (fastembed BAAI/bge-small-en-v1.5, 384 dims). Override via config
+    # or LOREWIKI_VECTOR_MODEL.
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
     embedding_dim: int = 384
 
 

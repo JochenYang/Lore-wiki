@@ -110,6 +110,39 @@ def test_rebuild_drops_old_rows(tmp_path: Path) -> None:
         assert rows["c"] == 0
 
 
+def test_incremental_index_purges_orphan_documents(tmp_path: Path) -> None:
+    """Hand-deleted .md files must leave no ghost rows after incremental index.
+
+    ``build_index(rebuild=False)`` only walks files that still exist; without
+    an explicit orphan purge, search would keep returning the deleted doc.
+    """
+    wiki = tmp_path / "wiki"
+    _seed_wiki(wiki)
+    cfg = LoreWikiConfig(wiki_path=wiki, db_path=tmp_path / "index.db")
+    build_index(cfg, rebuild=True)
+
+    deleted = wiki / "patterns" / "retry.md"
+    assert deleted.exists()
+    deleted.unlink()
+
+    build_index(cfg, rebuild=False)
+    assert cfg.db_path is not None
+    with open_db(cfg.db_path, auto_init=False) as conn:
+        leftover = [
+            r["doc_path"]
+            for r in conn.execute("SELECT DISTINCT doc_path FROM documents").fetchall()
+        ]
+        assert "patterns/retry.md" not in leftover
+        assert "api/user/auth.md" in leftover
+        assert "index.md" in leftover
+        # Hierarchy / summaries rebuilt from live files only.
+        hier = conn.execute(
+            "SELECT COUNT(*) AS c FROM hierarchy WHERE path = ?",
+            ("patterns/retry.md",),
+        ).fetchone()
+        assert hier["c"] == 0
+
+
 def test_missing_wiki_path_raises(tmp_path: Path) -> None:
     cfg = LoreWikiConfig(wiki_path=tmp_path / "does-not-exist")
     with pytest.raises(FileNotFoundError):

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from lorewiki.cli.helpers import format_value, is_secret_config_key
 from lorewiki.config import (
     LoreWikiConfig,
     default_config_toml,
@@ -220,3 +221,12 @@ def test_explicit_wiki_path_keeps_legacy_per_wiki_mode(
     assert cfg.topic is None
     assert cfg.wiki_path == wiki.resolve()
     assert cfg.db_path == wiki.resolve() / ".lorewiki" / "index.db"
+
+
+def test_format_value_redacts_secret_keys() -> None:
+    assert is_secret_config_key("llm.openai_api_key")
+    assert is_secret_config_key("some.password")
+    assert not is_secret_config_key("retrieval_mode")
+    assert format_value("sk-abc", key="llm.openai_api_key") == "***"
+    assert format_value("mix", key="retrieval_mode") == "mix"
+    assert format_value("", key="llm.openai_api_key") == ""

@@ -103,10 +103,8 @@ def delete(
         typer.Option(
             "--topic",
             "-T",
-            help="Topic name. Delete from this topic's vault instead of the active topic. "
-            "Use this when the note belongs to a specific second-brain topic "
-            "(e.g. '--topic warm-kitchen-time' for project-specific notes, "
-            "'--topic shared' for cross-project patterns).",
+            help="Topic vault that owns the doc (project topic or 'shared'). "
+            "Must match the vault used when the note was created.",
         ),
     ] = None,
     raw: Annotated[
@@ -126,9 +124,21 @@ def delete(
         console.print(f"[red]wiki path not found:[/red] {wiki_root}")
         raise typer.Exit(code=2)
 
-    target = resolve_doc_target(doc_path, wiki_root)
-
     # ---- 2. path-traversal safety net -------------------------------------
+    try:
+        target = resolve_doc_target(doc_path, wiki_root)
+    except ValueError as exc:
+        console.print(
+            Panel(
+                f"[red]Refusing to delete outside the wiki root:[/red]\n"
+                f"  {exc}\n"
+                f"Pass a doc_path inside the wiki.",
+                title="path-traversal blocked",
+                border_style="red",
+            )
+        )
+        raise typer.Exit(code=3) from exc
+
     if not _is_safe_target(wiki_root, target):
         console.print(
             Panel(

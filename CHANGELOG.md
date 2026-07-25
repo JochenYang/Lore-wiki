@@ -4,6 +4,42 @@ All notable changes to LoreWiki are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-07-25
+
+### Added
+- Dual-layer personal KB protocol for agents: project topic + `shared`,
+  documented in the bundled skill and MCP tool descriptions (read project
+  first, then `shared`; write by reusability).
+- Optional `topic` on every MCP tool (`search` / `show` / `tree` /
+  `add` / `update` / `delete`) so agents can target project vaults or
+  `shared` without switching the active topic.
+- `resolve_doc_target` now rejects paths that resolve outside the wiki
+  root (CLI + MCP write/delete paths).
+- Incremental `build_index` purges orphan `documents` rows when source
+  files were deleted on disk (hand-delete + `lorewiki index` no longer
+  leaves ghost search hits).
+- CLI `show` joins all chunks for a doc (parity with MCP `show`).
+- Config list/get redacts secret-looking keys (`api_key`, `secret`,
+  `password`, `token`).
+- Vector retriever SQL contract tests; default embedding model aligned
+  to `BAAI/bge-small-en-v1.5` across config / indexer / retriever.
+
+### Fixed
+- MCP `update` / `delete` path-traversal gap: absolute paths outside
+  the vault are blocked (same gate as CLI).
+- MCP topic overrides no longer keep a project-level `db_path` that
+  shadowed the requested topic vault.
+- Vector search selected non-existent `documents.embedding_distance`
+  and lacked `row_factory`; fixed to use `doc_vec.distance` with
+  Row-based access and clearer failure logging.
+- `--watch` help no longer promises an unimplemented file-watcher loop.
+
+### Changed
+- README recall table and production-readiness notes aligned with
+  measured Mix ~90% / Hierarchy ~40% and MCP being available again.
+- Skill template and `skills/lorewiki/SKILL.md` rewritten for dual-layer
+  read/write routing and MCP parity.
+
 ## [1.1.0] — 2026-07-08
 
 ### Added

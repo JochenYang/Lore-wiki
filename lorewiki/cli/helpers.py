@@ -9,6 +9,7 @@ them out of :mod:`lorewiki.cli.apps` avoids a circular dependency
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -46,18 +47,35 @@ def discover_project_dir(cfg: LoreWikiConfig) -> Path:
 def resolve_doc_target(doc_path: str, wiki_root: Path) -> Path:
     """Resolve a user-supplied ``doc_path`` against the wiki root.
 
-    Absolute paths are honoured as-is; relative paths are joined
-    under ``wiki_root``. The result is NOT yet safety-checked — the
-    caller must run :func:`lorewiki.cli.add._is_safe_target` on the
-    return value before any filesystem write / delete.
+    Absolute paths are honoured when they already live under
+    ``wiki_root``; relative paths are joined under ``wiki_root``.
+    Paths that resolve *outside* the wiki (including ``..`` escapes
+    and absolute paths elsewhere on the filesystem) raise
+    :class:`ValueError` so callers cannot accidentally write or
+    delete outside the vault.
 
-    Used by the ``update`` and ``delete`` commands so they accept the
-    same ``doc_path`` spelling (relative to the wiki, or absolute).
+    Callers that want a second belt-and-braces check may still run
+    :func:`lorewiki.cli.add._is_safe_target` on the return value.
+
+    Used by the ``update`` and ``delete`` commands (CLI + MCP) so they
+    accept the same ``doc_path`` spelling (relative to the wiki, or an
+    absolute path *inside* the wiki).
     """
     raw = Path(doc_path)
     if raw.is_absolute():
-        return raw.resolve(strict=False)
-    return (wiki_root / raw).resolve(strict=False)
+        target = raw.resolve(strict=False)
+    else:
+        target = (wiki_root / raw).resolve(strict=False)
+    try:
+        root = wiki_root.resolve(strict=False)
+    except OSError as exc:
+        raise ValueError(f"wiki root unreadable: {wiki_root}") from exc
+    # Must be a strict descendant of the wiki root (never the root itself).
+    if target == root or root not in target.parents:
+        raise ValueError(
+            f"doc_path resolves outside wiki root: {doc_path!r} -> {target}"
+        )
+    return target
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +128,23 @@ def flatten_config(cfg: LoreWikiConfig) -> dict[str, Any]:
     return flat
 
 
-def format_value(value: Any) -> str:
+_SECRET_KEY_RE = re.compile(
+    r"(api[_-]?key|secret|password|token|credential)",
+    re.IGNORECASE,
+)
+
+
+def is_secret_config_key(key: str) -> bool:
+    """True if a dotted config key looks like a secret field."""
+    return bool(_SECRET_KEY_RE.search(key))
+
+
+def format_value(value: Any, *, key: str | None = None) -> str:
+    """Format a config value for display; redact secret keys."""
+    if key is not None and is_secret_config_key(key):
+        if value in (None, "", "(none)"):
+            return "(none)" if value is None else ""
+        return "***"
     if isinstance(value, str):
         return value
     if value is None:
@@ -160,6 +194,7 @@ __all__ = [
     "flatten_config",
     "format_value",
     "human_bytes",
+    "is_secret_config_key",
     "log",
     "parse_toml_literal",
     "print_phase_status",

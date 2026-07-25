@@ -242,10 +242,9 @@ def add(
         typer.Option(
             "--topic",
             "-T",
-            help="Topic name. Write to this topic's vault instead of the active topic. "
-            "Use this when the note belongs to a specific second-brain topic "
-            "(e.g. '--topic warm-kitchen-time' for project-specific notes, "
-            "'--topic shared' for cross-project patterns).",
+            help="Target topic vault. Project-only notes → project topic "
+            "(or omit when default_topic is set); reusable patterns → "
+            "'shared'. Never put secrets in shared.",
         ),
     ] = None,
     force: Annotated[

@@ -1,17 +1,18 @@
 ---
 name: lorewiki
-description: "Local-first Markdown knowledge base with hybrid retrieval (BM25 + heading-hierarchy + RRF) and optional LLM answer generation. Use when the user wants to look something up in an internal wiki, ask a question grounded in their team docs, browse the hierarchy of stored notes, or persist a learning / decision / postmortem into a queryable store. Triggers on the natural-language intent to recall or save knowledge — the LLM should match by meaning, not by exact keyword. CLI is one shell call per command with JSON output by default for `search` / `show` / `tree`."
+description: "Local-first dual-layer personal knowledge base (per-project topic + shared) with hybrid retrieval (BM25 + hierarchy + RRF) and optional LLM answers. Use when recalling or saving project docs, cross-project patterns, decisions, runbooks, or postmortems. Match by intent (search/save/browse), not keywords. CLI: one shell call per command; JSON default for search/show/tree. Prefer project default_topic first, then --topic shared."
 ---
 
 # lorewiki
 
-Local-first Markdown knowledge base. Index a directory of `.md` files into
-SQLite + FTS5, then retrieve / answer / browse / author via the `lorewiki` CLI.
+Local-first Markdown knowledge base for a **complete personal LLM second
+brain**: one isolated **project topic** per codebase, plus a cross-project
+**`shared`** topic. Index `.md` into SQLite + FTS5; retrieve / answer /
+browse / author via the `lorewiki` CLI (or optional MCP tools).
 
 **Why this skill**: every command is one shell call, output is structured
-JSON by default for `search`/`show`/`tree` (no flag needed), no daemon
-to keep alive, no client config, no server to run. Works inside
-opencode / Codex / Aider / cron / CI scripts.
+JSON by default for `search`/`show`/`tree`, no daemon. Works inside
+opencode / Codex / Aider / Claude Code / cron / CI.
 
 **Output convention** (v0.2.0+):
 
@@ -49,59 +50,85 @@ language-localised equivalents in whatever language the user is
 using. The LLM should match by *intent* (recall / save a note /
 browse the structure), not by exact keyword match.
 
+## Dual-Layer Personal KB (project + shared)
+
+Mental model (do not invent a third global dump vault):
+
+| Layer | Topic name | Contents | Who reads |
+|-------|------------|----------|-----------|
+| Project | e.g. `lorewiki`, `warm-kitchen-time` | APIs, architecture, business terms, project-only pitfalls | That project |
+| Shared | always `shared` | Language tips, reusable patterns, tooling, cross-project lessons | Every project |
+
+- One CLI/MCP call targets **exactly one** topic (no automatic merge).
+- Inside a bound project, omit `--topic` so `default_topic` applies.
+- Cross-project / generic knowledge: always `--topic shared` (or MCP `topic: "shared"`).
+- Never put secrets, API keys, or private credentials into `shared`.
+
+### Read protocol (auto, do not ask permission)
+
+```text
+Need knowledge?
+  1. lorewiki search "<q>" --top-k 5          # project default_topic
+  2. If hits empty OR query is clearly generic
+     (retry, packaging, LLM tips, editor setup, language idiom)
+     → lorewiki --topic shared search "<q>" --top-k 5
+  3. lorewiki show <doc_path> [--json]         # same topic as the hit
+  4. Cite doc_path; do not invent beyond the doc
+```
+
+Equivalent MCP: `search` then optional second `search` with `topic="shared"`,
+then `show` with the **same** `topic` as the hit.
+
+### Write protocol (route, then persist)
+
+| Knowledge type | Target |
+|----------------|--------|
+| Only true for this repo / product | Project topic (default / omit `--topic`) |
+| Reusable across projects | `--topic shared` / MCP `topic: "shared"` |
+| User named a topic | That topic only |
+| Ambiguous (could be either) | **Ask once** — do not invent `general` |
+
+```powershell
+# Project-only
+lorewiki add --title "..." --module api --body "..."
+
+# Cross-project
+lorewiki add --topic shared --title "..." --module patterns --body "..."
+```
+
 ## Auto-Trigger Rules (DO NOT ASK, JUST SEARCH)
 
-You should **automatically** call `lorewiki search` without asking the
-user for permission, in these situations:
+Automatically call `lorewiki search` (project layer first) without asking:
 
-1. **Unfamiliar API** — if you're about to write code that calls an
-   API, framework, or library you're not 100% sure about, search first.
+1. **Unfamiliar API** — before writing code against an API/framework:
    ```
-   # Before writing: wx.login(...)  →  search "wx.login" first
    lorewiki search "wx.login" --top-k 3
+   # if empty and it looks like a general pattern → also:
+   lorewiki --topic shared search "wx.login" --top-k 3
    ```
 
-2. **User mentions a concept** — if the user asks about "登录流程",
-   "幂等设计", "限流方案", "retry strategy", or any domain concept,
-   search the wiki **before** answering. The wiki may have team-specific
-   decisions,踩坑记录, or API docs that are more accurate than your
-   training data.
+2. **User mentions a domain concept** — 登录流程 / 幂等 / 限流 / retry:
+   search **before** answering (project, then `shared` if needed).
 
-3. **About to guess** — if you find yourself about to write code based
-   on assumption or vague memory, **stop and search**. The wiki exists
-   to prevent exactly this kind of hallucination.
+3. **About to guess** — stop and search; wiki beats vague memory.
 
-4. **Error pattern encountered** — if you or the user encounter an error,
-   search for known issues and solutions:
-   ```
-   lorewiki search "<error message keywords>" --top-k 5
-   # Or search specifically for lessons learned:
-   # (when --type filter is available)
-   lorewiki search "<problem description>" --top-k 5
-   ```
+4. **Error patterns** — search error keywords in project, then `shared`.
 
-5. **Before suggesting a design pattern** — if you're about to recommend
-   "use retry with exponential backoff" or "implement idempotency key",
-   search the wiki first. The team may already have a documented pattern
-   with specific parameters, code examples, and known pitfalls.
+5. **Design patterns** — search project + `shared` for team/personal
+   parameters before recommending retry/idempotency/etc.
 
-**Do NOT ask the user "should I search the wiki?"** — just search. The
-cost of a search is ~3ms; the cost of hallucinating wrong API usage is
-a broken build and lost trust. If the wiki has nothing relevant (`hits
-== []`), proceed with your best judgment and mention "wiki has no docs
-on this".
+**Do NOT ask "should I search the wiki?"** — just search (~ms). If both
+layers return nothing, proceed and say so.
 
-**After searching**: if the search returns relevant docs, use
-`lorewiki show <doc_path> --raw` to read the full content before
-writing code. The search returns summaries; you need the full doc for
-implementation details.
+**After search**: `lorewiki show <doc_path> --json` (or MCP `show`) for
+full multi-chunk content before implementing.
 
 ## Prerequisites
 
 The `lorewiki` CLI must be on the user's PATH. Check with:
 
 ```powershell
-lorewiki --version    # expect: LoreWiki 1.1.0 (or newer)
+lorewiki --version    # expect: LoreWiki 1.2.0 (or newer)
 ```
 
 If missing:
@@ -119,44 +146,42 @@ Initialise one if absent: `lorewiki init --path <PATH>`.
 
 ## Topic and Project Binding Convention
 
-LoreWiki supports two simple ways to choose knowledge:
-
-- **Project-bound lookup**: a code project can set `default_topic` in
-  `<project>/.lorewiki/config.toml`. `lorewiki search` automatically
-  discovers that config from the current directory or any ancestor, so
-  agents can run it from `src/...` and still hit the right project wiki.
-- **Explicit common lookup**: pass `--topic <name>` for one-off queries,
-  e.g. `lorewiki --topic shared search "retry backoff"`.
-
-Recommended project binding from a project root:
+Bootstrap once per machine / project:
 
 ```powershell
-lorewiki config set default_topic lorewiki
+# Global reusable layer (once)
+lorewiki topic create shared
+lorewiki --topic shared index
+
+# Per code project (from that repo root)
+lorewiki topic create <project-slug>    # e.g. lorewiki
+lorewiki config set default_topic <project-slug>
+lorewiki index                          # indexes the bound project topic
 ```
 
-**Topic resolution priority**:
+**Topic resolution priority** (highest first):
 
-1. Explicit `--topic <name>` on the command.
+1. Explicit `--topic <name>` (or MCP `topic` argument).
 2. `LOREWIKI_TOPIC` environment variable.
-3. `<cwd-or-ancestor>/.lorewiki/config.toml` with `default_topic = "name"`.
-4. `~/.lorewiki/current` file set by `lorewiki topic use <name>`.
-5. Legacy `--path <WIKI_ROOT>` / `wiki_path` mode for standalone wiki folders.
+3. `<cwd-or-ancestor>/.lorewiki/config.toml` → `default_topic`.
+4. `~/.lorewiki/current` (`lorewiki topic use <name>`).
+5. Legacy `--path <WIKI_ROOT>` standalone wiki folders.
 
-Prefer the default project-bound call when working inside a bound codebase:
+**Normal day-to-day (agents)**:
 
 ```powershell
+# Inside a bound project — project layer
 lorewiki search "config resolution" --top-k 5
-```
 
-Use explicit topic calls for shared/common knowledge or when the user names
-a topic:
-
-```powershell
+# Cross-project / generic — shared layer
 lorewiki --topic shared search "python packaging pitfalls" --top-k 5
+
+# Read full doc (same topic as the hit)
+lorewiki show api/auth.md --json
+lorewiki --topic shared show patterns/retry.md --json
 ```
 
-Use `--path <WIKI_ROOT>` only for legacy standalone wiki folders, not for
-normal topic-based project work.
+Use `--path` only for legacy standalone folders, not normal topic work.
 
 ## Topics (second-brain vaults)
 
@@ -204,43 +229,29 @@ back to asking the user explicitly in that case.
 ### Topic Selection Before Writing (the "ask, don't surprise" rule)
 
 If the user says "save this to my wiki" / "记到 wiki 里" / "メモして"
-**without naming a topic**, the LLM must **not** auto-create a topic
-on the user's behalf. The wiki is a long-lived knowledge asset —
-silently dropping a doc into a freshly-invented `general` vault is
-surprising and pollutes the user's mental model.
-
-Follow this tree strictly, and **ask the user at the leaves**:
+**without naming a topic**, do **not** invent `general` or auto-create
+a random vault. Prefer the dual-layer routing first:
 
 ```text
 User: "save X to my wiki"  (no topic named)
   │
-  ├── 1. Is there an active topic?  (~/lorewiki/current exists)
-  │     ├── YES → use it. No question needed.
-  │     └── NO  → go to step 2.
+  ├── A. Content is clearly reusable across projects?
+  │     → --topic shared (create shared once if missing, with user OK)
   │
-  ├── 2. How many topics exist?  (lorewiki topic list --raw)
-  │     ├── 1 → "I see one topic '<name>'. Use it?" (one confirmation)
-  │     ├── 2-3 → list them, ask "which one?" (free text or pick)
-  │     └── 4+ → ask "which one?" (don't auto-pick)
+  ├── B. Content is clearly only for the current codebase?
+  │     ├── Project has default_topic → use it (no question)
+  │     └── Else active topic (~/.lorewiki/current) → use it
   │
-  └── 3. Zero topics exist
-        ├── Run `lorewiki topic suggest "<X summary>"` for English
-        │   descriptions, OR have the LLM propose 1-3 names itself
-        │   for CJK descriptions.
-        └── Show candidates to the user:
-              "I can create topic 'wechat-mp', 'wechat-miniprogram',
-              or 'mp'. Which? (Or pick your own — lowercase, digits,
-              hyphens, 1-64 chars.)"
-            User picks → lorewiki topic create <name>
-            User rejects all → ask for a name by hand.
+  ├── C. Ambiguous project vs shared → ASK once
+  │
+  └── D. No project binding and no active topic
+        ├── topic list --raw
+        ├── 1 topic → confirm "use <name>?"
+        ├── 2+ → ask which (list project vs shared if present)
+        └── 0 → Naming Protocol (suggest / user picks) then create
 ```
 
-**Why this matters**: a user who has spent a year curating
-`~/lorewiki/topics/react/`, `~/lorewiki/topics/api/`, etc., does
-**not** want their work silently merged into a `general` vault just
-because they said "wiki" without naming a topic. The cost of asking
-once is one round-trip; the cost of surprising the user is having
-to undo the merger later.
+Never silently merge years of curated topics into a dump vault.
 
 **Path resolution priority**:
 1. `--topic` flag
@@ -603,63 +614,69 @@ English title and put the original-language text in `--body`.
   paragraphs the user just told you. Drop a directory + `lorewiki index`
   for bulk. **Never** wrap `add` in a 50-iteration loop when a
   short script + one index call would be cleaner.
-- **Topic routing** (`--topic` / `-T`): **always** pass `--topic` when
-  adding a note that belongs to a specific project's topic. Project-specific
-  notes go to their dedicated topic (e.g. `--topic warm-kitchen-time`);
-  cross-project patterns go to `--topic shared`. Without `--topic` the note
-  lands in the active topic, which may not be the right one. The MCP `add`
-  tool accepts a `topic` parameter with the same semantics.
+- **Topic routing** (`--topic` / MCP `topic`):
+  - **Read**: project first (omit topic if `default_topic` is set); then
+    `--topic shared` for generic / empty project hits.
+  - **Write**: project-only → project topic; reusable → `shared`; ambiguous → ask once.
+  - MCP tools (`search` / `show` / `tree` / `add` / `update` / `delete`) all
+    accept `topic` with the same dual-layer semantics.
 
 ## Common Pitfalls
 
 | Pitfall                                                              | Avoidance                                                                                                                             |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Reaching for `lorewiki add` in a tight loop for bulk ingestion.      | Drop the source directory and run `lorewiki index` once. Re-indexing every add is O(N) — a single bulk index is O(1).               |
-| Searching with a 1-2 character CJK query and getting "0 hits".       | Combine with at least one more char or use `--mode bm25` which falls back to LIKE for short queries.                                  |
-| Forgetting `--path` and assuming `cwd` has a wiki config.            | Always pass `--path`. If the user is ambiguous, follow the priority chain in [Path Handling Convention](#path-handling-convention).   |
-| Editing a `.md` and not re-indexing.                                 | `lorewiki index --path "<WIKI>"` is incremental — unchanged files skip; just run it.                                                  |
-| Using `Out-File` / `Set-Content` in PowerShell to write Markdown — may add BOM that breaks frontmatter parsing. | Use the agent's Write / Edit tool, or `[IO.File]::WriteAllText` with UTF-8 no-BOM.                                                    |
-| Asking `lorewiki ask` and assuming an LLM answer.                    | Check the `used_llm` field in `ask --raw` output; fallback is normal and useful.                                                          |
-| JSON output appears as `?` / replacement chars on Windows PowerShell. | The CLI forces UTF-8 stdout. If you still see it: (a) upgrade `lorewiki`; (b) as a fallback, prefix the command with `chcp 65001 |` to force the shell code page to UTF-8; (c) parse the prettified terminal panel for the `doc_path` and use the `Read` tool on the source `.md` file. |
-| Brute-force scanning the whole filesystem when the wiki path is unknown. | Use the bounded-depth scan in [Path Handling Convention](#path-handling-convention) (Depth 3 against a small set of plausible roots such as the user's workspace and ``$HOME/Documents``), not ``Get-ChildItem -Recurse`` against an entire drive root. The exact list of roots is platform-specific; pick a small handful that makes sense for the user's machine, never a full recursive scan. |
+| Only searching the project layer for generic knowledge.              | Second call: `lorewiki --topic shared search "..."` (or MCP `topic: "shared"`). |
+| Dumping every note into `shared` or inventing `general`.             | Route by reusability; ask once when ambiguous. |
+| Reaching for `lorewiki add` in a tight loop for bulk ingestion.      | Drop the source directory and run `lorewiki index` once. |
+| Searching with a 1-2 character CJK query and getting "0 hits".       | Longer query or `--mode bm25` (LIKE fallback). |
+| Forgetting project binding and relying on a wrong active topic.      | Set `default_topic` in the project; prefer that over global `topic use` while coding. |
+| Editing a `.md` and not re-indexing.                                 | `lorewiki index` is incremental — just run it. |
+| Using PowerShell `Out-File` (BOM) for Markdown.                      | Agent Write/Edit or UTF-8 no-BOM write. |
+| Assuming `ask` always used an LLM.                                   | Check `used_llm` in `ask --raw`. |
+| Absolute paths outside the vault for update/delete.                  | Relative `doc_path` only; outside paths are rejected. |
 
 ## Quick Reference
 
 ```powershell
 lorewiki --version
-lorewiki init     --path "<WIKI>"
-lorewiki index    --path "<WIKI>" [--rebuild]
-lorewiki status   --path "<WIKI>"
-lorewiki search   "<QUERY>" --path "<WIKI>" --mode {mix|bm25|hierarchy} --top-k N   # default: JSON
-lorewiki show     "<DOC_PATH>" --path "<WIKI>" [--raw]                              # default: cleaned body
-lorewiki tree     "[<PREFIX>]" --path "<WIKI>" [--depth N]                         # hierarchy view
-lorewiki add      --title "<T>" --topic <topic> [--module <M>] [--body <B> | --file <F> | stdin]   # one-off write + reindex
-lorewiki ask      "<QUERY>" --path "<WIKI>" --top-k N --raw                         # JSON (default: Markdown)
-lorewiki topic    {list|use|create|show|...}                                        # vault management
-lorewiki config   {list|get|set} ... --path "<WIKI>"
-lorewiki clean    --path "<WIKI>" [--dry-run] [--no-backup]                          # on-disk .md rewrite
+lorewiki topic create shared && lorewiki --topic shared index
+lorewiki config set default_topic <project-slug>
+lorewiki search   "<QUERY>" --top-k 5 --mode mix              # project layer (JSON)
+lorewiki --topic shared search "<QUERY>" --top-k 5            # shared layer
+lorewiki show     "<DOC_PATH>" --json                         # full multi-chunk body
+lorewiki tree     [--depth N]
+lorewiki add      --title "<T>" [--topic shared] --module <M> --body "..."
+lorewiki ask      "<QUERY>" --raw
+lorewiki topic    {list|use|create|show|delete|rename|suggest}
+lorewiki config   {list|get|set}
+lorewiki index    [--rebuild]
+lorewiki mcp serve                                            # optional MCP stdio server
 ```
 
 ## Decision Cheat-Sheet
 
-| User intent                                            | Command                                                       |
-| ------------------------------------------------------ | ------------------------------------------------------------- |
-| "look up X in the wiki"                                 | `lorewiki search "X" --mode mix --top-k 5`                    |
-| "show me the full content of doc Y"                     | `lorewiki show "<DOC_PATH>"`                                  |
-| "what's in the wiki / what modules exist"               | `lorewiki tree`                                               |
-| "does the wiki explain how X is implemented?"             | `lorewiki ask "how is X implemented?" --raw`                  |
-| "what modules does the wiki have?"                      | `lorewiki tree --depth 2`                                     |
-| "remember this / save this / take a note about X" (topic named)  | `lorewiki add --title "X" --topic <name> --body "..."` |
-| "remember this / save this to my wiki" (no topic)               | Follow the **Topic Selection Tree** (see "ask, don't surprise")     |
-| "save this URL / doc to my wiki"                                 | Fetch content (webfetch / Read tool) → `lorewiki add --title X --body "<fetched>"` |
-| "store these N pages / scrape this site"                | Drop the dir under the topic, then `lorewiki index`           |
-| "import my entire <some-tool> docs folder"              | `lorewiki topic create <name> --source <docs-folder>`          |
-| "why does this query return no results?"                 | Re-run with `--mode bm25` to inspect scores                   |
+| User intent | Command / action |
+| ----------- | ---------------- |
+| Look up X in this project | `lorewiki search "X" --top-k 5` |
+| Look up generic / cross-project X | `lorewiki --topic shared search "X" --top-k 5` |
+| Project empty, might be general | Project search → then `shared` |
+| Full content of a hit | `lorewiki show "<DOC_PATH>" --json` (same topic) |
+| What's in this vault | `lorewiki tree` / `--topic shared tree` |
+| Synthesised answer | `lorewiki ask "..." --raw` |
+| Save project-only note | `lorewiki add --title ... --body ...` |
+| Save reusable pattern | `lorewiki add --topic shared --title ... --body ...` |
+| Save without clear vault | Dual-layer write tree (ask if ambiguous) |
+| Bulk import folder | `topic create <name> --source <dir>` then `index` |
+| No hits | Try `shared`, then `--mode bm25`; don't invent |
 
-## MCP Server & Auto-Inject (for advanced setups)
+## MCP Server (same dual-layer rules)
 
-LoreWiki also ships an **MCP server** (`lorewiki mcp serve`) and an
-**auto-inject** command (`lorewiki inject`) for tools that support
-these integration patterns. See the README's "LLM Integration" section
-for setup details. If you're reading this skill, you don't need them —
-the skill is the universal fallback.
+```powershell
+pip install 'lorewiki[mcp]'
+lorewiki mcp serve
+```
+
+Tools: `search` / `show` / `tree` / `add` / `update` / `delete` — each accepts
+optional `topic` (`shared` or project slug). Read: project first, then
+`topic="shared"`. Write: route by reusability. Skill shell-out remains the
+universal fallback when MCP is not configured.
